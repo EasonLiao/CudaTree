@@ -1,5 +1,5 @@
 from sklearn import tree
-from sklearn.datasets import load_iris
+from sklearn.datasets import load_iris, load_digits
 import numpy as np
 import cProfile
 
@@ -90,11 +90,17 @@ class DecisionTree(object):
     ret_node.samples = Y.size
     ret_node.height = Height
 
+    print "Height : %s, Samples: %s" % (Height, ret_node.samples)
+    
+
     if check_terminate():
       ret_node.value = Y[0]
+      print "Height : ", Height
       return ret_node
 
+    
     for i in range(self.num_features):
+      print i
       res = self.find_min_impurity(E[:,i], Y)
       if min_split_info is None or res.min_impurity < min_split_info.min_impurity:
         min_split_info = res
@@ -129,7 +135,7 @@ class DecisionTree(object):
   def print_tree(self):
     def recursive_print(node):
       if node.left_child and node.right_child:
-        print "Height : %s,  Feature Index : %s,  Threshold : %s" % (node.height, node.feature_index, node.feature_threshold)  
+        print "Height : %s,  Feature Index : %s,  Threshold : %s,  Samples : %s" % (node.height, node.feature_index, node.feature_threshold, node.samples)  
         recursive_print(node.left_child)
         recursive_print(node.right_child)
       else:
@@ -140,9 +146,15 @@ class DecisionTree(object):
 
 if __name__ == "__main__":
   d = DecisionTree()
-  iris = load_iris()
-  cProfile.run("d.fit(iris.data, iris.target)")
-  d.print_tree()
+  iris = load_digits()
+  
+  print iris.data
+  print iris.data.shape
+  print ""
+  print iris.target
+  print iris.target.shape
+  d.fit(iris.data, iris.target)
+  #d.print_tree()
   #res = d.predict(iris.data)
   #print np.allclose(iris.target, res)
 
