@@ -201,5 +201,7 @@ if __name__ == "__main__":
   iris = load_iris()
   cProfile.run("d.fit(iris.data, iris.target)")
   d.print_tree() 
+  res = d.predict(iris.data)
+  print np.allclose(iris.target, res)
   
 
