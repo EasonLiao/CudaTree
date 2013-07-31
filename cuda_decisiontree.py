@@ -10,8 +10,6 @@ import pycuda.autoinit
 import pycuda.driver as cuda
 from pycuda import gpuarray
 from pycuda.compiler import SourceModule
-import cProfile
-import sys
 
 def mk_kernel(n_samples, n_labels, _cache = {}):
   key = (n_samples, n_labels)
@@ -57,8 +55,8 @@ def mk_kernel(n_samples, n_labels, _cache = {}):
           label_count[i][curr_label]++; 
         }
       
-      //If the first value of the feature equals the last value of the feature, then it means all the values of this feature are same.
-      //Igonore it.
+      //If the first value of the feature equals the last value of the feature, then it means all 
+      //the values of this feature are same. Ignore it.
       if(sorted_samples[blockIdx.x * n_samples] == sorted_samples[blockIdx.x * n_samples + n_samples - 1]){
         imp_left[blockIdx.x] = 2;
         imp_right[blockIdx.x] = 2;
@@ -73,8 +71,8 @@ def mk_kernel(n_samples, n_labels, _cache = {}):
         
         if (curr_value == next_value) continue;
 
-        float imp_left = calc_imp(label_zeros, label_count[i], i + 1);
-        float imp_right = calc_imp(label_count[i], label_count[n_samples-1], n_samples - i - 1);
+        float imp_left = ((i + 1) / float(n_samples)) * calc_imp(label_zeros, label_count[i], i + 1);
+        float imp_right = ((n_samples - i - 1) / float(n_samples)) * calc_imp(label_count[i], label_count[n_samples-1], n_samples - i - 1);
         float impurity = imp_left + imp_right;
         if(min_imp > impurity) {
           min_imp = impurity;
@@ -114,92 +112,85 @@ class SplitInfo(object):
     self.boolean_mask_right = None
 
 class DecisionTree(object): 
-  def __init__(self, num_examples, num_labels, num_features):
+  def __init__(self):
     self.root = None
-    self.num_examples = num_examples
-    self.num_labels = num_labels
-    self.num_features = num_features
-        
-    self.kernel = mk_kernel(num_examples, num_labels)
 
 
-  def fit(self, Samples, Target):
-    self.num_features = Samples[0].size
-    self.num_examples = Samples.size
-    assert isinstance(Samples, np.ndarray)
-    assert isinstance(Target, np.ndarray)
-    assert Samples.size / Samples[0].size == Target.size
+  def fit(self, samples, target, num_labels):
+    assert isinstance(samples, np.ndarray)
+    assert isinstance(target, np.ndarray)
+    assert samples.size / samples[0].size == target.size
 
-    Samples = np.require(np.transpose(Samples), dtype = np.float32, requirements = 'C')
-    Target = np.require(np.transpose(Target), dtype = np.int32, requirements = 'C') 
-    self.root = self.construct(Samples, Target, 1, 1.0) 
+    self.kernel = mk_kernel(target.size, num_labels)
+
+    samples = np.require(np.transpose(samples), dtype = np.float32, requirements = 'C')
+    target = np.require(np.transpose(target), dtype = np.int32, requirements = 'C') 
+    self.root = self.construct(samples, target, 1, 1.0) 
 
 
-  def construct(self, Samples, Target, Height, ErrRate):
+  def construct(self, samples, target, Height, error_rate):
     def check_terminate():
-      if ErrRate == 0:
+      if error_rate == 0:
         return True
       else:
         return False
     
     ret_node = Node()
-    ret_node.error = ErrRate
-    ret_node.samples = Target.size
+    ret_node.error = error_rate
+    ret_node.samples = target.size
     ret_node.height = Height
 
     if check_terminate():
-      ret_node.value = Target[0]
+      ret_node.value = target[0]
       return ret_node
 
-    SortedExamples = np.empty_like(Samples)
-    SortedTargets = np.empty_like(Samples).astype(np.int32)
-    SortedTargetsGPU = None 
-    ImpurityRes = None
+    sorted_examples = np.empty_like(samples)
+    sorted_targets = np.empty_like(samples).astype(np.int32)
+    sorted_targetsGPU = None 
 
-    for i,f in enumerate(Samples):
+    for i,f in enumerate(samples):
       sorted_index = np.argsort(f)
-      SortedExamples[i] = Samples[i][sorted_index]
-      SortedTargets[i] = Target[sorted_index]
+      sorted_examples[i] = samples[i][sorted_index]
+      sorted_targets[i] = target[sorted_index]
    
-    SortedTargetsGPU = gpuarray.to_gpu(SortedTargets)
-    SortedExamplesGPU = gpuarray.to_gpu(SortedExamples)
-    n_features = SortedTargetsGPU.shape[0]
-    ImpurityLeft = gpuarray.empty(n_features, dtype = np.float32)
-    ImpurityRight = gpuarray.empty(n_features, dtype = np.float32)
-    MinSplit = gpuarray.empty(n_features, dtype = np.int32)
+    sorted_targetsGPU = gpuarray.to_gpu(sorted_targets)
+    sorted_examplesGPU = gpuarray.to_gpu(sorted_examples)
+    n_features = sorted_targetsGPU.shape[0]
+    impurity_left = gpuarray.empty(n_features, dtype = np.float32)
+    impurity_right = gpuarray.empty(n_features, dtype = np.float32)
+    min_split = gpuarray.empty(n_features, dtype = np.int32)
 
 
-    self.kernel(SortedTargetsGPU, 
-                SortedExamplesGPU,
-                ImpurityLeft,
-                ImpurityRight,
-                MinSplit,
-                np.int32(SortedTargetsGPU.shape[0]), 
-                np.int32(SortedTargetsGPU.shape[1]), 
-                np.int32(SortedTargetsGPU.strides[0] / Target.itemsize), #leading
+    self.kernel(sorted_targetsGPU, 
+                sorted_examplesGPU,
+                impurity_left,
+                impurity_right,
+                min_split,
+                np.int32(sorted_targetsGPU.shape[0]), 
+                np.int32(sorted_targetsGPU.shape[1]), 
+                np.int32(sorted_targetsGPU.strides[0] / target.itemsize), #leading
                 block = (1, 1, 1), #launch number of features threads
-                grid = (SortedTargetsGPU.shape[0], 1)
+                grid = (sorted_targetsGPU.shape[0], 1)
                 )
-
-
-    imp_left = ImpurityLeft.get()
-    imp_right = ImpurityRight.get()
+    
+    imp_left = impurity_left.get()
+    imp_right = impurity_right.get()
     imp_total = imp_left + imp_right
     
     ret_node.feature_index =  imp_total.argmin()
     row = ret_node.feature_index
-    col = MinSplit.get()[row]
-    ret_node.feature_threshold = (SortedExamples[row][col] + SortedExamples[row][col + 1]) / 2.0 
+    col = min_split.get()[row]
+    ret_node.feature_threshold = (sorted_examples[row][col] + sorted_examples[row][col + 1]) / 2.0 
 
-    boolean_mask_left = (Samples[ret_node.feature_index] < ret_node.feature_threshold)
-    boolean_mask_right = (Samples[ret_node.feature_index] >= ret_node.feature_threshold)
-    data_left =  Samples[:, boolean_mask_left].copy()
-    target_left = Target[boolean_mask_left].copy()
+    boolean_mask_left = (samples[ret_node.feature_index] < ret_node.feature_threshold)
+    boolean_mask_right = (samples[ret_node.feature_index] >= ret_node.feature_threshold)
+    data_left =  samples[:, boolean_mask_left].copy()
+    target_left = target[boolean_mask_left].copy()
     assert len(target_left) > 0
     ret_node.left_child = self.construct(data_left, target_left, Height + 1, imp_left[ret_node.feature_index])
 
-    data_right = Samples[:, boolean_mask_right].copy()
-    target_right = Target[boolean_mask_right].copy()
+    data_right = samples[:, boolean_mask_right].copy()
+    target_right = target[boolean_mask_right].copy()
     assert len(target_right) > 0 
     ret_node.right_child = self.construct(data_right, target_right, Height + 1, imp_right[ret_node.feature_index])
     
@@ -236,21 +227,11 @@ class DecisionTree(object):
     recursive_print(self.root)
 
 
-def main():
-  d = DecisionTree()
-  iris = load_iris()
-  d.fit(iris.data, iris.target)
-  d.print_tree() 
-
-
 if __name__ == "__main__":
+  d = DecisionTree()  
   dataset = sklearn.datasets.load_digits()
-  num_examples, num_features = dataset.data.shape
-  num_labels = len(dataset.target_names)
- 
-  d = DecisionTree(num_examples, num_labels, num_features)
-  d.fit(dataset.data, dataset.target)
-  
+  num_labels = len(dataset.target_names) 
+  d.fit(dataset.data, dataset.target, num_labels)
   #d.print_tree()
   res = d.predict(dataset.data)
   print np.allclose(dataset.target, res)

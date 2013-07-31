@@ -146,16 +146,10 @@ class DecisionTree(object):
 
 if __name__ == "__main__":
   d = DecisionTree()
-  iris = load_digits()
-  
-  print iris.data
-  print iris.data.shape
-  print ""
-  print iris.target
-  print iris.target.shape
+  iris = load_digits() 
   d.fit(iris.data, iris.target)
   #d.print_tree()
-  #res = d.predict(iris.data)
-  #print np.allclose(iris.target, res)
+  res = d.predict(iris.data)
+  print np.allclose(iris.target, res)
 
 
