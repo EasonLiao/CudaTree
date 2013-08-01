@@ -10,6 +10,7 @@ import pycuda.autoinit
 import pycuda.driver as cuda
 from pycuda import gpuarray
 from pycuda.compiler import SourceModule
+import math
 import sys
 
 def mk_kernel(n_samples, n_labels, kernel_file,  _cache = {}):
@@ -22,7 +23,6 @@ def mk_kernel(n_samples, n_labels, kernel_file,  _cache = {}):
     mod = SourceModule(code % (n_samples, n_labels))
     fn = mod.get_function("compute")
     _cache[key] = fn
-
     return fn
 
 class Node(object):
@@ -38,17 +38,22 @@ class Node(object):
 
 
 class DecisionTree(object): 
+  KERNEL_SIMPLE = "kernel_simple.cu"
+  KERNEL_BETTER = "kernel_better.cu"
+  
   def __init__(self):
     self.root = None
+    self.kernel_type = None
+    self.num_labels = None
 
-
-  def fit(self, samples, target, num_labels, kernel_file):
+  def fit(self, samples, target,  kernel_type):
     assert isinstance(samples, np.ndarray)
     assert isinstance(target, np.ndarray)
     assert samples.size / samples[0].size == target.size
-
-    self.kernel = mk_kernel(target.size, num_labels, kernel_file)
-
+    
+    self.num_labels = np.unique(target).size
+    self.kernel = mk_kernel(target.size,self.num_labels, kernel_type)
+    self.kernel_type = kernel_type
     samples = np.require(np.transpose(samples), dtype = np.float32, requirements = 'C')
     target = np.require(np.transpose(target), dtype = np.int32, requirements = 'C') 
     self.root = self.__construct(samples, target, 1, 1.0) 
@@ -86,23 +91,48 @@ class DecisionTree(object):
     impurity_right = gpuarray.empty(n_features, dtype = np.float32)
     min_split = gpuarray.empty(n_features, dtype = np.int32)
 
+    grid = (sorted_targetsGPU.shape[0], 1)
+    block = None
 
-    self.kernel(sorted_targetsGPU, 
-                sorted_examplesGPU,
-                impurity_left,
-                impurity_right,
-                min_split,
-                np.int32(sorted_targetsGPU.shape[0]), 
-                np.int32(sorted_targetsGPU.shape[1]), 
-                np.int32(sorted_targetsGPU.strides[0] / target.itemsize), #leading
-                block = (1, 1, 1), #launch number of features threads
-                grid = (sorted_targetsGPU.shape[0], 1)
-                )
+    if self.kernel_type ==  self.KERNEL_BETTER:
+      #Launch 64 threads per thread block
+      #Launch number of features blocks
+      block = (64, 1, 1)
+
+      #Create a global label_count array, and pass it to kernel function.
+      label_count = gpuarray.empty(ret_node.samples * self.num_labels * sorted_targetsGPU.shape[0], dtype = np.int32)
+      self.kernel(sorted_targetsGPU, 
+                  sorted_examplesGPU,
+                  impurity_left,
+                  impurity_right,
+                  label_count,
+                  min_split,
+                  np.int32(sorted_targetsGPU.shape[0]), 
+                  np.int32(sorted_targetsGPU.shape[1]), 
+                  np.int32(sorted_targetsGPU.strides[0] / target.itemsize), #leading
+                  block = block,
+                  grid = grid
+                  )
+    elif self.kernel_type == self.KERNEL_SIMPLE:
+      block = (1, 1, 1)
+      self.kernel(sorted_targetsGPU, 
+                  sorted_examplesGPU,
+                  impurity_left,
+                  impurity_right,
+                  min_split,
+                  np.int32(sorted_targetsGPU.shape[0]), 
+                  np.int32(sorted_targetsGPU.shape[1]), 
+                  np.int32(sorted_targetsGPU.strides[0] / target.itemsize), #leading
+                  block = block,
+                  grid = grid
+                  )
+    
+
     
     imp_left = impurity_left.get()
     imp_right = impurity_right.get()
     imp_total = imp_left + imp_right
-    
+   
     ret_node.feature_index =  imp_total.argmin()
     row = ret_node.feature_index
     col = min_split.get()[row]
@@ -125,7 +155,6 @@ class DecisionTree(object):
    
   def __predict(self, val):
     temp = self.root
-
     while True:
       if temp.left_child and temp.right_child:
         if val[temp.feature_index] < temp.feature_threshold:
@@ -155,10 +184,10 @@ class DecisionTree(object):
 
 if __name__ == "__main__":
   d = DecisionTree()  
-  dataset = sklearn.datasets.load_digits()
+  dataset = sklearn.datasets.load_iris()
   num_labels = len(dataset.target_names) 
-  d.fit(dataset.data, dataset.target, num_labels, "kernel_better.cu")
-  #d.print_tree()
+  d.fit(dataset.data, dataset.target, DecisionTree.KERNEL_BETTER)
+  d.print_tree()
   res = d.predict(dataset.data)
   print np.allclose(dataset.target, res)
   
