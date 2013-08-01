@@ -38,9 +38,12 @@ class Node(object):
 
 
 class DecisionTree(object): 
-  KERNEL_SIMPLE = "kernel_simple.cu"
-  KERNEL_BETTER = "kernel_better.cu"
+  KERNEL_1 = "kernel_1.cu"  #One thread per feature.
+  KERNEL_2 = "kernel_2.cu"  #One block per feature.
+  KERNEL_3 = "kernel_3.cu"  #One block per feature, add parallel reduction to find minimum impurity.
   
+  THREADS_PER_BLOCK = 64  
+
   def __init__(self):
     self.root = None
     self.kernel_type = None
@@ -91,13 +94,18 @@ class DecisionTree(object):
     impurity_right = gpuarray.empty(n_features, dtype = np.float32)
     min_split = gpuarray.empty(n_features, dtype = np.int32)
 
-    grid = (sorted_targetsGPU.shape[0], 1)
-    block = None
+    
+    n_features = sorted_targetsGPU.shape[0]
+    n_samples = sorted_targetsGPU.shape[1]
+    leading = sorted_targetsGPU.strides[0] / target.itemsize
 
-    if self.kernel_type ==  self.KERNEL_BETTER:
+    assert n_samples == leading #Just curious about if they can be different.
+    grid = (n_features, 1)
+    
+    if self.kernel_type !=  self.KERNEL_1:
       #Launch 64 threads per thread block
       #Launch number of features blocks
-      block = (64, 1, 1)
+      block = (self.THREADS_PER_BLOCK, 1, 1)
 
       #Create a global label_count array, and pass it to kernel function.
       label_count = gpuarray.empty(ret_node.samples * self.num_labels * sorted_targetsGPU.shape[0], dtype = np.int32)
@@ -107,22 +115,22 @@ class DecisionTree(object):
                   impurity_right,
                   label_count,
                   min_split,
-                  np.int32(sorted_targetsGPU.shape[0]), 
-                  np.int32(sorted_targetsGPU.shape[1]), 
-                  np.int32(sorted_targetsGPU.strides[0] / target.itemsize), #leading
+                  np.int32(n_features), 
+                  np.int32(n_samples), 
+                  np.int32(leading),
                   block = block,
                   grid = grid
                   )
-    elif self.kernel_type == self.KERNEL_SIMPLE:
+    else:
       block = (1, 1, 1)
       self.kernel(sorted_targetsGPU, 
                   sorted_examplesGPU,
                   impurity_left,
                   impurity_right,
                   min_split,
-                  np.int32(sorted_targetsGPU.shape[0]), 
-                  np.int32(sorted_targetsGPU.shape[1]), 
-                  np.int32(sorted_targetsGPU.strides[0] / target.itemsize), #leading
+                  np.int32(n_features), 
+                  np.int32(n_samples), 
+                  np.int32(leading),
                   block = block,
                   grid = grid
                   )
@@ -186,8 +194,8 @@ if __name__ == "__main__":
   d = DecisionTree()  
   dataset = sklearn.datasets.load_iris()
   num_labels = len(dataset.target_names) 
-  d.fit(dataset.data, dataset.target, DecisionTree.KERNEL_BETTER)
-  d.print_tree()
+  d.fit(dataset.data, dataset.target, DecisionTree.KERNEL_2)
+  #d.print_tree()
   res = d.predict(dataset.data)
   print np.allclose(dataset.target, res)
   
