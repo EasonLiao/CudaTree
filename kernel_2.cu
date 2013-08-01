@@ -1,3 +1,4 @@
+//One block per feature.
 #include<stdio.h>
 #include<math.h>
 #define MAX_NUM_SAMPLES %d
@@ -58,8 +59,6 @@ __global__ void compute(int* sorted_targets,
       label_count[i + offset] = 0;
 
     split[blockIdx.x] = 0; 
-    
-
     int curr_label = sorted_targets[blockIdx.x * n_samples];
     label_count[curr_label + offset]++;
    
@@ -68,7 +67,6 @@ __global__ void compute(int* sorted_targets,
           label_count[i * MAX_NUM_LABELS + l + offset] = label_count[(i-1) * MAX_NUM_LABELS + l + offset];
         
         curr_label = sorted_targets[blockIdx.x * n_samples + i];
-        
         label_count[i * MAX_NUM_LABELS + curr_label + offset]++; 
       }
   
@@ -110,6 +108,5 @@ __global__ void compute(int* sorted_targets,
     
   imp_left[blockIdx.x] = shared_imp_left[min_index];
   imp_right[blockIdx.x] = shared_imp_right[min_index];
-  split[blockIdx.x] = shared_split_index[min_index];
-  
+  split[blockIdx.x] = shared_split_index[min_index];  
 }

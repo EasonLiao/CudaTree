@@ -1,3 +1,4 @@
+//Add parallel reduction to find mininum impurity based on kernel_2.cu
 #include<stdio.h>
 #include<math.h>
 #define MAX_NUM_SAMPLES %d
@@ -93,23 +94,30 @@ __global__ void compute(int* sorted_targets,
   }   
   __syncthreads();
 
-  float min_imp = 2;
-  int min_index;
-  
-  if(threadIdx.x == 0){
-    for(int i = 0; i < blockDim.x; ++i){
-      float total_imp = shared_imp_left[i] + shared_imp_right[i];      
-      if(total_imp < min_imp){
-        min_imp = total_imp;
-        min_index = i;
+  int n_threads = blockDim.x;
+  int next_thread;
+
+  //Parallel tree reduction to find mininum impurity
+  while(n_threads > 1){
+    int half = (n_threads >> 1);
+    if(threadIdx.x < half){
+      next_thread = threadIdx.x + half;
+      if(shared_imp_left[threadIdx.x] + shared_imp_right[threadIdx.x] > shared_imp_left[next_thread] + shared_imp_right[next_thread]){
+        shared_imp_left[threadIdx.x] = shared_imp_left[next_thread];
+        shared_imp_right[threadIdx.x] = shared_imp_right[next_thread];
+        shared_split_index[threadIdx.x] = shared_split_index[next_thread];
       }
     }
-  }
-  else
-    return;
     
-  imp_left[blockIdx.x] = shared_imp_left[min_index];
-  imp_right[blockIdx.x] = shared_imp_right[min_index];
-  split[blockIdx.x] = shared_split_index[min_index];
-  
+    n_threads = half;
+  }
+
+  __syncthreads();
+
+  if(threadIdx.x != 0)
+    return;
+
+  imp_left[blockIdx.x] = shared_imp_left[0];
+  imp_right[blockIdx.x] = shared_imp_right[0];
+  split[blockIdx.x] = shared_split_index[0]; 
 }

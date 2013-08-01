@@ -1,3 +1,4 @@
+//One thread per feature
 #include<stdio.h>
 #include<math.h>
 #define MAX_NUM_SAMPLES %d

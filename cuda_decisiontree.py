@@ -140,7 +140,7 @@ class DecisionTree(object):
     imp_left = impurity_left.get()
     imp_right = impurity_right.get()
     imp_total = imp_left + imp_right
-   
+  
     ret_node.feature_index =  imp_total.argmin()
     row = ret_node.feature_index
     col = min_split.get()[row]
@@ -192,10 +192,9 @@ class DecisionTree(object):
 
 if __name__ == "__main__":
   d = DecisionTree()  
-  dataset = sklearn.datasets.load_iris()
+  dataset = sklearn.datasets.load_digits()
   num_labels = len(dataset.target_names) 
-  d.fit(dataset.data, dataset.target, DecisionTree.KERNEL_2)
-  #d.print_tree()
+  d.fit(dataset.data, dataset.target, DecisionTree.KERNEL_3) 
   res = d.predict(dataset.data)
   print np.allclose(dataset.target, res)
   
