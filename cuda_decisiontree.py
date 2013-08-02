@@ -25,6 +25,19 @@ def mk_kernel(n_samples, n_labels, kernel_file,  _cache = {}):
     _cache[key] = fn
     return fn
 
+def mk_scan_kernel(n_samples, n_labels, threads_per_block, kernel_file,  _cache = {}):
+  key = (n_samples, n_labels)
+  if key in _cache:
+    return _cache[key]
+  
+  with open(kernel_file) as code_file:
+    code = code_file.read()  
+    mod = SourceModule(code % (n_samples, n_labels, threads_per_block))
+    fn = mod.get_function("prefix_scan")
+    _cache[key] = fn
+    return fn
+
+
 class Node(object):
   def __init__(self):
     self.value = None 
@@ -38,25 +51,31 @@ class Node(object):
 
 
 class DecisionTree(object): 
-  KERNEL_1 = "kernel_1.cu"  #One thread per feature.
-  KERNEL_2 = "kernel_2.cu"  #One block per feature.
-  KERNEL_3 = "kernel_3.cu"  #One block per feature, add parallel reduction to find minimum impurity.
-  
-  THREADS_PER_BLOCK = 64  
+  COMPUTE_KERNEL_SS = "comput_kernel_ss.cu"   #One thread per feature.
+  COMPUTE_KERNEL_PS = "comput_kernel_ps.cu"   #One block per feature.
+  COMPUTE_KERNEL_PP = "comput_kernel_pp.cu"   #Based on kernel 2, add parallel reduction to find minimum impurity.
+  COMPUTE_KERNEL_CP = "comput_kernel_cp.cu"   #Based on kernel 3, utilized the coalesced memory access.
+  SCAN_KERNEL_S = "scan_kernel_s.cu"          #Serialized prefix scan.
+  SCAN_KERNEL_P = "scan_kernel_p.cu"          #Simple parallel prefix scan.
+
+  COMPT_THREADS_PER_BLOCK = 64  #The number of threads do computation per block.
+  SCAN_THREADS_PER_BLOCK = 64   #The number of threads do prefix scan per block.
 
   def __init__(self):
     self.root = None
-    self.kernel_type = None
+    self.compt_kernel_type = None
     self.num_labels = None
 
-  def fit(self, samples, target,  kernel_type):
+  def fit(self, samples, target, scan_kernel_type, compt_kernel_type):
     assert isinstance(samples, np.ndarray)
     assert isinstance(target, np.ndarray)
     assert samples.size / samples[0].size == target.size
     
     self.num_labels = np.unique(target).size
-    self.kernel = mk_kernel(target.size,self.num_labels, kernel_type)
-    self.kernel_type = kernel_type
+    self.kernel = mk_kernel(target.size, self.num_labels, compt_kernel_type)
+    self.scan_kernel = mk_scan_kernel(target.size, self.num_labels, self.COMPT_THREADS_PER_BLOCK, scan_kernel_type)
+    
+    self.compt_kernel_type = compt_kernel_type
     samples = np.require(np.transpose(samples), dtype = np.float32, requirements = 'C')
     target = np.require(np.transpose(target), dtype = np.int32, requirements = 'C') 
     self.root = self.__construct(samples, target, 1, 1.0) 
@@ -100,47 +119,38 @@ class DecisionTree(object):
     leading = sorted_targetsGPU.strides[0] / target.itemsize
 
     assert n_samples == leading #Just curious about if they can be different.
-    grid = (n_features, 1)
     
-    if self.kernel_type !=  self.KERNEL_1:
-      #Launch 64 threads per thread block
-      #Launch number of features blocks
-      block = (self.THREADS_PER_BLOCK, 1, 1)
-
-      #Create a global label_count array, and pass it to kernel function.
-      label_count = gpuarray.empty(ret_node.samples * self.num_labels * sorted_targetsGPU.shape[0], dtype = np.int32)
-      self.kernel(sorted_targetsGPU, 
-                  sorted_examplesGPU,
-                  impurity_left,
-                  impurity_right,
-                  label_count,
-                  min_split,
-                  np.int32(n_features), 
-                  np.int32(n_samples), 
-                  np.int32(leading),
-                  block = block,
-                  grid = grid
-                  )
+    grid = (n_features, 1) 
+    label_count = gpuarray.empty(ret_node.samples * self.num_labels * n_features, dtype = np.int32)
+    
+    if self.compt_kernel_type !=  self.COMPUTE_KERNEL_SS:
+      block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
     else:
       block = (1, 1, 1)
-      self.kernel(sorted_targetsGPU, 
-                  sorted_examplesGPU,
-                  impurity_left,
-                  impurity_right,
-                  min_split,
-                  np.int32(n_features), 
-                  np.int32(n_samples), 
-                  np.int32(leading),
-                  block = block,
-                  grid = grid
-                  )
     
+    self.scan_kernel(sorted_targetsGPU, 
+                label_count,
+                np.int32(n_features), 
+                np.int32(n_samples), 
+                np.int32(leading),
+                block = (self.SCAN_THREADS_PER_BLOCK, 1, 1),
+                grid = grid)
+    
+    self.kernel(sorted_examplesGPU,
+                impurity_left,
+                impurity_right,
+                label_count,
+                min_split,
+                np.int32(n_features), 
+                np.int32(n_samples), 
+                np.int32(leading),
+                block = block,
+                grid = grid)
 
-    
     imp_left = impurity_left.get()
     imp_right = impurity_right.get()
     imp_total = imp_left + imp_right
-  
+ 
     ret_node.feature_index =  imp_total.argmin()
     row = ret_node.feature_index
     col = min_split.get()[row]
@@ -193,9 +203,15 @@ class DecisionTree(object):
 if __name__ == "__main__":
   d = DecisionTree()  
   dataset = sklearn.datasets.load_digits()
-  num_labels = len(dataset.target_names) 
-  d.fit(dataset.data, dataset.target, DecisionTree.KERNEL_3) 
+  #num_labels = len(dataset.target_names)  
+  import cProfile 
+  print "begin"
+  #cProfile.run("d.fit(dataset.data, dataset.target, DecisionTree.COMPUTE_KERNEL_PP, DecisionTree.SCAN_KERNEL_P)")d.fit(dataset.data, dataset.target, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_cp)
+  d.fit(dataset.data, dataset.target, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_PS)
+  d.print_tree()
+
+  '''
   res = d.predict(dataset.data)
   print np.allclose(dataset.target, res)
-  
+  '''
 
