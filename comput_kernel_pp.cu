@@ -51,7 +51,7 @@ __global__ void compute(float *sorted_samples,
     else
       quit = 0;
   }
- 
+
   __syncthreads();
 
   if(quit == 1)

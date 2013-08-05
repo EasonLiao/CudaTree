@@ -3,8 +3,6 @@
 #include<math.h>
 #define MAX_NUM_SAMPLES %d
 #define MAX_NUM_LABELS %d
-#define THREADS_PER_BLOCK %d
-
 
 __global__ void prefix_scan(int* sorted_targets, 
                         int *label_count,

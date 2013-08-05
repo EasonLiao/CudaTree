@@ -25,14 +25,14 @@ def mk_kernel(n_samples, n_labels, kernel_file,  _cache = {}):
     _cache[key] = fn
     return fn
 
-def mk_scan_kernel(n_samples, n_labels, threads_per_block, kernel_file,  _cache = {}):
+def mk_scan_kernel(n_samples, n_labels, kernel_file,  _cache = {}):
   key = (n_samples, n_labels)
   if key in _cache:
     return _cache[key]
   
   with open(kernel_file) as code_file:
     code = code_file.read()  
-    mod = SourceModule(code % (n_samples, n_labels, threads_per_block))
+    mod = SourceModule(code % (n_samples, n_labels))
     fn = mod.get_function("prefix_scan")
     _cache[key] = fn
     return fn
@@ -65,25 +65,52 @@ class DecisionTree(object):
     self.root = None
     self.compt_kernel_type = None
     self.num_labels = None
+    self.label_count = None
+    self.max_depth = None
 
-  def fit(self, samples, target, scan_kernel_type, compt_kernel_type):
+  def fit(self, samples, target, scan_kernel_type, compt_kernel_type, max_depth = None):
     assert isinstance(samples, np.ndarray)
     assert isinstance(target, np.ndarray)
     assert samples.size / samples[0].size == target.size
     
+    self.max_depth = max_depth
     self.num_labels = np.unique(target).size
-    self.kernel = mk_kernel(target.size, self.num_labels, compt_kernel_type)
-    self.scan_kernel = mk_scan_kernel(target.size, self.num_labels, self.COMPT_THREADS_PER_BLOCK, scan_kernel_type)
     
+    self.kernel = mk_kernel(target.size, self.num_labels, compt_kernel_type)
+    self.scan_kernel = mk_scan_kernel(target.size, self.num_labels, scan_kernel_type)
+    
+    """ Use prepare to improve speed """
+    self.kernel.prepare("PPPPPiii")
+    self.scan_kernel.prepare("PPiii")
+
     self.compt_kernel_type = compt_kernel_type
     samples = np.require(np.transpose(samples), dtype = np.float32, requirements = 'C')
     target = np.require(np.transpose(target), dtype = np.int32, requirements = 'C') 
+   
+    n_features = samples.shape[0]
+    
+    """ Pre-allocate the GPU memory, don't allocate everytime in __construct"""
+    self.impurity_left = gpuarray.empty(n_features, dtype = np.float32)
+    self.impurity_right = gpuarray.empty(n_features, dtype = np.float32)
+    self.min_split = gpuarray.empty(n_features, dtype = np.int32)
+    self.label_count = gpuarray.empty(target.size * self.num_labels * samples.shape[0], dtype = np.int32)  
+    self.sorted_samples_mem = cuda.mem_alloc(samples.nbytes) 
+    self.sorted_targets_mem = cuda.mem_alloc(target.nbytes * n_features)
+
     self.root = self.__construct(samples, target, 1, 1.0) 
+    
+    """ Release GPU memory"""
+    self.impurity_left = None
+    self.impurity_right = None
+    self.min_split = None
+    self.label_count = None
+    self.sorted_samples_mem = None
+    self.sorted_targets_mem = None
 
 
-  def __construct(self, samples, target, Height, error_rate):
+  def __construct(self, samples, target, depth, error_rate):
     def check_terminate():
-      if error_rate == 0:
+      if error_rate == 0 or (self.max_depth is not None and depth > self.max_depth):
         return True
       else:
         return False
@@ -91,7 +118,7 @@ class DecisionTree(object):
     ret_node = Node()
     ret_node.error = error_rate
     ret_node.samples = target.size
-    ret_node.height = Height
+    ret_node.height = depth 
 
     if check_terminate():
       ret_node.value = target[0]
@@ -99,78 +126,76 @@ class DecisionTree(object):
 
     sorted_examples = np.empty_like(samples)
     sorted_targets = np.empty_like(samples).astype(np.int32)
-    sorted_targetsGPU = None 
+    #sorted_targetsGPU = None 
 
     for i,f in enumerate(samples):
       sorted_index = np.argsort(f)
       sorted_examples[i] = samples[i][sorted_index]
       sorted_targets[i] = target[sorted_index]
    
+    """
     sorted_targetsGPU = gpuarray.to_gpu(sorted_targets)
     sorted_examplesGPU = gpuarray.to_gpu(sorted_examples)
-    n_features = sorted_targetsGPU.shape[0]
-    impurity_left = gpuarray.empty(n_features, dtype = np.float32)
-    impurity_right = gpuarray.empty(n_features, dtype = np.float32)
-    min_split = gpuarray.empty(n_features, dtype = np.int32)
+    """
+    cuda.memcpy_htod(self.sorted_targets_mem, sorted_targets)
+    cuda.memcpy_htod(self.sorted_samples_mem, sorted_examples)
 
-    
-    n_features = sorted_targetsGPU.shape[0]
-    n_samples = sorted_targetsGPU.shape[1]
-    leading = sorted_targetsGPU.strides[0] / target.itemsize
+    n_features = sorted_targets.shape[0]
+    n_samples = sorted_targets.shape[1]
+    leading = n_samples #sorted_targetsGPU.strides[0] / target.itemsize
 
     assert n_samples == leading #Just curious about if they can be different.
     
     grid = (n_features, 1) 
-    label_count = gpuarray.empty(ret_node.samples * self.num_labels * n_features, dtype = np.int32)
     
     if self.compt_kernel_type !=  self.COMPUTE_KERNEL_SS:
       block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
     else:
       block = (1, 1, 1)
+  
+    self.scan_kernel.prepared_call(
+                grid,
+                (self.SCAN_THREADS_PER_BLOCK, 1, 1),
+                self.sorted_targets_mem, 
+                self.label_count.gpudata,
+                n_features, 
+                n_samples, 
+                leading) 
     
-    self.scan_kernel(sorted_targetsGPU, 
-                label_count,
-                np.int32(n_features), 
-                np.int32(n_samples), 
-                np.int32(leading),
-                block = (self.SCAN_THREADS_PER_BLOCK, 1, 1),
-                grid = grid)
-    
-    self.kernel(sorted_examplesGPU,
-                impurity_left,
-                impurity_right,
-                label_count,
-                min_split,
-                np.int32(n_features), 
-                np.int32(n_samples), 
-                np.int32(leading),
-                block = block,
-                grid = grid)
+    self.kernel.prepared_call(
+                grid,
+                block,
+                self.sorted_samples_mem,
+                self.impurity_left.gpudata,
+                self.impurity_right.gpudata,
+                self.label_count.gpudata,
+                self.min_split.gpudata,
+                n_features, 
+                n_samples, 
+                leading)
 
-    imp_left = impurity_left.get()
-    imp_right = impurity_right.get()
+    imp_left = self.impurity_left.get()
+    imp_right = self.impurity_right.get()
     imp_total = imp_left + imp_right
  
     ret_node.feature_index =  imp_total.argmin()
     row = ret_node.feature_index
-    col = min_split.get()[row]
+    col = self.min_split.get()[row]
     ret_node.feature_threshold = (sorted_examples[row][col] + sorted_examples[row][col + 1]) / 2.0 
 
     boolean_mask_left = (samples[ret_node.feature_index] < ret_node.feature_threshold)
-    boolean_mask_right = (samples[ret_node.feature_index] >= ret_node.feature_threshold)
+    boolean_mask_right = ~boolean_mask_left 
     data_left =  samples[:, boolean_mask_left].copy()
     target_left = target[boolean_mask_left].copy()
     assert len(target_left) > 0
-    ret_node.left_child = self.__construct(data_left, target_left, Height + 1, imp_left[ret_node.feature_index])
+    ret_node.left_child = self.__construct(data_left, target_left, depth + 1, imp_left[ret_node.feature_index])
 
     data_right = samples[:, boolean_mask_right].copy()
     target_right = target[boolean_mask_right].copy()
     assert len(target_right) > 0 
-    ret_node.right_child = self.__construct(data_right, target_right, Height + 1, imp_right[ret_node.feature_index])
-    
+    ret_node.right_child = self.__construct(data_right, target_right, depth + 1, imp_right[ret_node.feature_index])    
     return ret_node 
-
-   
+ 
   def __predict(self, val):
     temp = self.root
     while True:
@@ -206,10 +231,9 @@ if __name__ == "__main__":
   #num_labels = len(dataset.target_names)  
   import cProfile 
   print "begin"
-  #cProfile.run("d.fit(dataset.data, dataset.target, DecisionTree.COMPUTE_KERNEL_PP, DecisionTree.SCAN_KERNEL_P)")d.fit(dataset.data, dataset.target, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_cp)
-  d.fit(dataset.data, dataset.target, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_PS)
+  #cProfile.run("d.fit(dataset.data, dataset.target, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_SS)")
+  d.fit(dataset.data, dataset.target, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_PP)
   d.print_tree()
-
   '''
   res = d.predict(dataset.data)
   print np.allclose(dataset.target, res)
