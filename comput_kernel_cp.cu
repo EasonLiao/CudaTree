@@ -4,6 +4,7 @@
 #define MAX_NUM_SAMPLES %d
 #define MAX_NUM_LABELS %d
 #define MAX_THREADS_PER_BLOCK 256
+#define SAMPLE_DATA_TYPE %s
 
 __device__  float calc_imp_right(int label_previous[MAX_NUM_LABELS], int label_now[MAX_NUM_LABELS],  int total_size){
   float imp = 1.0;
@@ -21,7 +22,7 @@ __device__  float calc_imp_left(int label_now[MAX_NUM_LABELS],  int total_size){
   return imp; 
 }
 
-__global__ void compute(float *sorted_samples, 
+__global__ void compute(SAMPLE_DATA_TYPE *sorted_samples, 
                         float *imp_left, 
                         float *imp_right, 
                         int *label_count,
@@ -57,8 +58,8 @@ __global__ void compute(float *sorted_samples,
 
   
   for(int i = begin; i < n_samples - 1; i += step){
-    float cur_value = sorted_samples[blockIdx.x * n_samples + i];
-    float next_value = sorted_samples[blockIdx.x * n_samples + i + 1];
+    SAMPLE_DATA_TYPE cur_value = sorted_samples[blockIdx.x * n_samples + i];
+    SAMPLE_DATA_TYPE next_value = sorted_samples[blockIdx.x * n_samples + i + 1];
     if(cur_value == next_value)
       continue;
 
