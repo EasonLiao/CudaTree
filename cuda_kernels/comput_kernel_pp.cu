@@ -1,4 +1,4 @@
-//Utilized the coalesced memory access
+//Add parallel reduction to find mininum impurity based on kernel_2.cu
 #include<stdio.h>
 #include<math.h>
 #define MAX_NUM_SAMPLES %d
@@ -6,24 +6,28 @@
 #define MAX_THREADS_PER_BLOCK 256
 #define SAMPLE_DATA_TYPE %s
 
-__device__  float calc_imp_right(int* label_previous, int* label_now, int total_size, int stride){
+__device__  float calc_imp_right(int label_previous[MAX_NUM_LABELS], int label_now[MAX_NUM_LABELS], int total_size){
   float sum = 0.0; 
-  for(int i = 0; i < MAX_NUM_LABELS; ++i) { 
-    float count = label_now[i * stride] - label_previous[i * stride]; 
-    sum += count * count; 
+  for(int i = 0; i < MAX_NUM_LABELS; ++i){
+    float count = label_now[i] - label_previous[i];
+    sum += count * count;
   }
-  float denom = ((float) total_size) * total_size; 
-  return 1.0 - (sum / denom);  
+
+  float denom = ((float) total_size) * total_size;
+
+  return 1.0 - (sum / denom); 
 }
 
-__device__  float calc_imp_left(int* label_now,  int total_size, int stride){
-  float sum = 0.0; 
-  for(int i = 0; i < MAX_NUM_LABELS; ++i) { 
-    float n_category = label_now[i*stride];
-    sum += n_category * n_category; 
+__device__  float calc_imp_left(int label_now[MAX_NUM_LABELS], int total_size){
+  float sum = 0.0;
+  for(int i = 0; i < MAX_NUM_LABELS; ++i){
+    float count = label_now[i];
+    sum += count * count;
   }
-  float denom = ((float) total_size) * total_size; 
-  return 1.0 - (sum / denom);  
+  
+  float denom = ((float) total_size) * total_size;
+
+  return 1.0 - (sum / denom); 
 }
 
 __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples, 
@@ -33,18 +37,18 @@ __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples,
                         int *split, 
                         int n_features, 
                         int n_samples, 
-                        int leading){
-
-
-  int label_offset = blockIdx.x * MAX_NUM_LABELS * n_samples;  
-  int samples_offset = blockIdx.x * n_samples;
+                        int stride){
+  
+  int offset = blockIdx.x * MAX_NUM_LABELS * n_samples; 
+  int samples_offset = blockIdx.x * stride;
   __shared__ int quit;
   __shared__ float shared_imp_left[MAX_THREADS_PER_BLOCK];
   __shared__ float shared_imp_right[MAX_THREADS_PER_BLOCK];
   __shared__ int shared_split_index[MAX_THREADS_PER_BLOCK];
 
-  int step = blockDim.x;
-  int begin = threadIdx.x;
+  int range = ceil(double(n_samples) / blockDim.x);
+  int range_begin =(threadIdx.x * range < n_samples)? threadIdx.x * range : n_samples - 1;
+  int range_end = (range_begin + range < n_samples)? range_begin + range : n_samples - 1;
   shared_imp_left[threadIdx.x] = 2;
   shared_imp_right[threadIdx.x] = 2;
 
@@ -57,18 +61,20 @@ __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples,
     else
       quit = 0;
   }
- 
+
   __syncthreads();
-  
+
   if(quit == 1)
     return;
- 
-  for(int i = begin; i < n_samples - 1; i += step){
-    if(sorted_samples[samples_offset + i] == sorted_samples[samples_offset + i + 1])
+
+  for(int i = range_begin; i < range_end; ++i){
+    SAMPLE_DATA_TYPE cur_value = sorted_samples[samples_offset + i];
+    SAMPLE_DATA_TYPE next_value = sorted_samples[samples_offset + i + 1];
+    if(cur_value == next_value)
       continue;
 
-    float imp_left = ((i + 1) / float(n_samples)) * calc_imp_left(&label_count[i + label_offset],  i + 1, n_samples);
-    float imp_right = ((n_samples - i - 1) / float(n_samples)) * calc_imp_right(&label_count[i  + label_offset], &label_count[n_samples - 1 + label_offset], n_samples - i - 1, n_samples);
+    float imp_left = ((i + 1) / float(n_samples)) * calc_imp_left(&label_count[i * MAX_NUM_LABELS + offset], i + 1);
+    float imp_right = ((n_samples - i - 1) / float(n_samples)) * calc_imp_right(&label_count[i * MAX_NUM_LABELS + offset], &label_count[MAX_NUM_LABELS * (n_samples-1) + offset], n_samples - i - 1);
     float impurity = imp_left + imp_right;
     if(impurity < shared_imp_left[threadIdx.x] + shared_imp_right[threadIdx.x]){
       shared_imp_left[threadIdx.x] = imp_left;

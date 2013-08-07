@@ -10,10 +10,10 @@ __global__ void prefix_scan(int* sorted_targets,
                         int *label_count,
                         int n_features, 
                         int n_samples, 
-                        int leading){
+                        int stride){
 
   int label_offset = blockIdx.x * MAX_NUM_LABELS * n_samples; //The offset of label_count for each block.
-  int targets_offset = blockIdx.x * n_samples;                //The offset of sorted_targets for each block
+  int targets_offset = blockIdx.x * stride;                //The offset of sorted_targets for each block
 
   int range = ceil(double(n_samples) / blockDim.x);            //The range of elements each thread is reponsible for. 
   int n_active_threads = ceil(double(n_samples) / range);     //The number of threads that have the actual work to do.

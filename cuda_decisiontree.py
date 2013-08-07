@@ -13,6 +13,19 @@ from pycuda.compiler import SourceModule
 import math
 import sys
 
+import time 
+class timer(object):
+  def __init__(self, name):
+    self.name = name
+
+  def __enter__(self, *args):
+    print "Running %s" % self.name 
+    self.start_t = time.time()
+
+  def __exit__(self, *args):
+    print "Time for %s: %s" % (self.name, time.time() - self.start_t)
+
+
 def dtype_to_ctype(dtype):
   if dtype.kind == 'f':
     if dtype == 'float32':
@@ -24,6 +37,7 @@ def dtype_to_ctype(dtype):
   return "%s_t" % dtype 
 
 def mk_kernel(n_samples, n_labels, datatype, kernel_file,  _cache = {}):
+  kernel_file = "cuda_kernels/" + kernel_file
   key = (n_samples, n_labels, datatype)
   if key in _cache:
     return _cache[key]
@@ -37,6 +51,7 @@ def mk_kernel(n_samples, n_labels, datatype, kernel_file,  _cache = {}):
     return fn
 
 def mk_scan_kernel(n_samples, n_labels, kernel_file, n_threads,  _cache = {}):
+  kernel_file = "cuda_kernels/" + kernel_file
   key = (n_samples, n_labels)
   if key in _cache:
     return _cache[key]
@@ -46,6 +61,22 @@ def mk_scan_kernel(n_samples, n_labels, kernel_file, n_threads,  _cache = {}):
     mod = SourceModule(code % (n_samples, n_labels, n_threads))
     fn = mod.get_function("prefix_scan")
     _cache[key] = fn
+    return fn
+
+def mk_fill_table_kernel(kernel_file = "fill_table.cu"):
+  kernel_file = "cuda_kernels/" + kernel_file
+  with open(kernel_file) as code_file:
+    code = code_file.read()  
+    mod = SourceModule(code)
+    fn = mod.get_function("fill_table")
+    return fn
+
+def mk_shuffle_kernel(kernel_file = "reshuffle.cu"):
+  kernel_file = "cuda_kernels/" + kernel_file
+  with open(kernel_file) as code_file:
+    code = code_file.read()  
+    mod = SourceModule(code)
+    fn = mod.get_function("reshuffle")
     return fn
 
 
@@ -68,9 +99,10 @@ class DecisionTree(object):
   COMPUTE_KERNEL_CP = "comput_kernel_cp.cu"   #Based on kernel 3, utilized the coalesced memory access.
   COMPUTE_KERNEL_CP_CM = "comput_kernel_cp_cm.cu"   #Based on kernel 3, utilized the coalesced memory access.
   SCAN_KERNEL_S = "scan_kernel_s.cu"          #Serialized prefix scan.
-  SCAN_KERNEL_P = "scan_kernel_p_sharedm.cu"          #Simple parallel prefix scan.
-  SCAN_KERNEL_P_CM = "scan_kernel_p_cm.cu"          #Simple parallel prefix scan.
-
+  SCAN_KERNEL_P = "scan_kernel_p.cu"          #Simple parallel prefix scan.
+  SCAN_KERNEL_P_CM = "scan_kernel_p_cm.cu"          #Simple parallel prefix scan. 
+  SHUFFLE_KERNEL = "reshuffle.cu"
+  
   COMPT_THREADS_PER_BLOCK = 64  #The number of threads do computation per block.
   SCAN_THREADS_PER_BLOCK = 64   #The number of threads do prefix scan per block.
 
@@ -86,132 +118,154 @@ class DecisionTree(object):
     assert isinstance(samples, np.ndarray)
     assert isinstance(target, np.ndarray)
     assert samples.size / samples[0].size == target.size
-    
+      
     self.max_depth = max_depth
     self.num_labels = np.unique(target).size  
     self.stride = target.size
-
+   
     self.compt_kernel_type = compt_kernel_type
     samples = np.require(np.transpose(samples), dtype = np.float32, requirements = 'C')
     target = np.require(np.transpose(target), dtype = np.int32, requirements = 'C') 
-    
+   
     self.kernel = mk_kernel(target.size, self.num_labels, samples.dtype, compt_kernel_type)
     self.scan_kernel = mk_scan_kernel(target.size, self.num_labels, scan_kernel_type, self.SCAN_THREADS_PER_BLOCK)
-    
+    self.fill_kernel = mk_fill_table_kernel()
+    self.shuffle_kernel = mk_shuffle_kernel()
+   
     """ Use prepare to improve speed """
     self.kernel.prepare("PPPPPiii")
-    self.scan_kernel.prepare("PPiii")
-   
-    n_features = samples.shape[0]
+    self.scan_kernel.prepare("PPiii") 
     
+    n_features = samples.shape[0]
+    self.n_features = n_features
+
     """ Pre-allocate the GPU memory, don't allocate everytime in __construct"""
     self.impurity_left = gpuarray.empty(n_features, dtype = np.float32)
     self.impurity_right = gpuarray.empty(n_features, dtype = np.float32)
     self.min_split = gpuarray.empty(n_features, dtype = np.int32)
+    self.mark_table = gpuarray.empty(target.size, dtype = np.int32)
 
-    #print target.size * self.num_labels * samples.shape[0] / (1024 * 1024 * 1024)
+    sorted_indices = np.empty((n_features, target.size), dtype = np.int32)
+    sorted_labels = np.empty_like(sorted_indices) 
+    sorted_samples = np.empty((n_features, target.size), dtype = np.float32)
+
     self.label_count = gpuarray.empty(target.size * self.num_labels * samples.shape[0], dtype = np.int32)  
-    self.sorted_samples_mem = cuda.mem_alloc(samples.nbytes) 
-    self.sorted_targets_mem = cuda.mem_alloc(target.nbytes * n_features)
- 
-    self.root = self.__construct(samples, target, 1, 1.0, 0, target.size) 
     
-    """ Release GPU memory"""
-    self.impurity_left = None
-    self.impurity_right = None
-    self.min_split = None
-    self.label_count = None
-    self.sorted_samples_mem = None
-    self.sorted_targets_mem = None
+    with timer("argsort"):
+      for i,f in enumerate(samples):
+        sort_idx = np.argsort(f)
+        sorted_indices[i] = sort_idx  
+        sorted_labels[i] = target[sort_idx]
+        sorted_samples[i] = samples[i][sort_idx]
+  
+    
+    with timer("to gpu"): 
+      self.sorted_samples_gpu = gpuarray.to_gpu(sorted_samples)
+      self.sorted_indices_gpu = gpuarray.to_gpu(sorted_indices)
+      self.sorted_labels_gpu = gpuarray.to_gpu(sorted_labels)    
+      self.sorted_samples_gpu_ = self.sorted_samples_gpu.copy()
+      self.sorted_indices_gpu_ = self.sorted_indices_gpu.copy()
+      self.sorted_labels_gpu_ = self.sorted_labels_gpu.copy()
+      sorted_samples = None
+      sorted_indices = None
+      sorted_labels = None
 
+    assert self.sorted_indices_gpu.strides[0] == target.size * target.itemsize 
+    assert self.sorted_labels_gpu.strides[0] == target.size * target.itemsize 
+    assert self.sorted_samples_gpu.strides[0] == target.size * samples.itemsize 
+    
+    self.root = self.__construct(1, 1.0, 0, target.size, (self.sorted_indices_gpu, self.sorted_labels_gpu, self.sorted_samples_gpu),
+                                  (self.sorted_indices_gpu_, self.sorted_labels_gpu_, self.sorted_samples_gpu_)) 
+    
 
-  def __construct(self, samples, target, depth, error_rate, start_idx, stop_idx):
+  def __construct(self, depth, error_rate, start_idx, stop_idx, gpuarrays_in, gpuarrays_out):
     def check_terminate():
       if error_rate == 0 or (self.max_depth is not None and depth > self.max_depth):
         return True
       else:
         return False 
     
-    #print start_idx, stop_idx
+    #print "Height : %s, samples : %d" % (depth, stop_idx - start_idx)
+
+    n_samples = stop_idx - start_idx
+    offset = start_idx * 4
 
     ret_node = Node()
     ret_node.error = error_rate
-    ret_node.samples = target.size
+    ret_node.samples = n_samples 
     ret_node.height = depth 
 
     if check_terminate():
-      ret_node.value = target[0]
+      ret_node.value = 1 #target[0]
       return ret_node
-
-    sorted_examples = np.empty_like(samples)
-    sorted_targets = np.empty_like(samples).astype(np.int32)
-    #sorted_targetsGPU = None 
-
-    for i,f in enumerate(samples):
-      sorted_indices = np.argsort(f)
-      sorted_examples[i] = samples[i][sorted_indices]
-      sorted_targets[i] = target[sorted_indices]
-   
-    cuda.memcpy_htod(self.sorted_targets_mem, sorted_targets)
-    cuda.memcpy_htod(self.sorted_samples_mem, sorted_examples)
-
-    n_features = sorted_targets.shape[0]
-    n_samples = sorted_targets.shape[1]
-    #leading = n_samples #sorted_targetsGPU.strides[0] / target.itemsize
-
-    #assert n_samples == leading #Just curious about if they can be different.
+  
     
-    grid = (n_features, 1) 
-    
+    grid = (self.n_features, 1) 
+
     if self.compt_kernel_type !=  self.COMPUTE_KERNEL_SS:
       block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
     else:
       block = (1, 1, 1)
-
+   
     self.scan_kernel.prepared_call(
                 grid,
                 (self.SCAN_THREADS_PER_BLOCK, 1, 1),
-                self.sorted_targets_mem, 
+                np.intp(gpuarrays_in[1].gpudata) + offset, 
                 self.label_count.gpudata,
-                n_features, 
+                self.n_features, 
                 n_samples, 
                 self.stride) 
-   
-
+    
     self.kernel.prepared_call(
               grid,
               block,
-              self.sorted_samples_mem,
+              np.intp(gpuarrays_in[2].gpudata) + offset,
               self.impurity_left.gpudata,
               self.impurity_right.gpudata,
               self.label_count.gpudata,
               self.min_split.gpudata,
-              n_features, 
+              self.n_features, 
               n_samples, 
               self.stride) 
+    
 
     imp_left = self.impurity_left.get()
     imp_right = self.impurity_right.get()
     imp_total = imp_left + imp_right
-
+     
     ret_node.feature_index =  imp_total.argmin()
     row = ret_node.feature_index
     col = self.min_split.get()[row]
-    ret_node.feature_threshold = (sorted_examples[row][col] + sorted_examples[row][col + 1]) / 2.0 
+  
+    #ret_node.feature_threshold = (sorted_samples[row][col] + sorted_samples[row][col + 1]) / 2.0 
     
-    boolean_mask_left = (samples[ret_node.feature_index] < ret_node.feature_threshold)
-    boolean_mask_right = ~boolean_mask_left 
-    data_left =  samples[:, boolean_mask_left].copy()
-    target_left = target[boolean_mask_left].copy()
-    assert len(target_left) > 0
-    ret_node.left_child = self.__construct(data_left, target_left, depth + 1, imp_left[ret_node.feature_index], start_idx, start_idx + col + 1)
+    self.fill_kernel(np.intp(gpuarrays_in[0].gpudata) + row * self.stride * 4 + offset, 
+                      np.int32(n_samples), 
+                      np.int32(col), 
+                      self.mark_table, 
+                      np.int32(self.stride), 
+                      block=(1024, 1 ,1), 
+                      grid=(1, 1))
+  
+    self.shuffle_kernel(self.mark_table,
+                      np.intp(gpuarrays_in[1].gpudata) + offset,
+                      np.intp(gpuarrays_in[0].gpudata) + offset,
+                      np.intp(gpuarrays_in[2].gpudata) + offset,
+                      np.intp(gpuarrays_out[1].gpudata) + offset,
+                      np.intp(gpuarrays_out[0].gpudata) + offset,
+                      np.intp(gpuarrays_out[2].gpudata) + offset,
+                      np.int32(n_samples),
+                      np.int32(col),
+                      np.int32(self.stride),
+                      block = (1, 1, 1),
+                      grid = (self.n_features, 1)
+                      )
 
-    data_right = samples[:, boolean_mask_right].copy()
-    target_right = target[boolean_mask_right].copy()
-    assert len(target_right) > 0 
-    ret_node.right_child = self.__construct(data_right, target_right, depth + 1, imp_right[ret_node.feature_index], start_idx + col + 1, stop_idx)    
+    ret_node.left_child = self.__construct(depth + 1, imp_left[ret_node.feature_index], start_idx, start_idx + col + 1, gpuarrays_out, gpuarrays_in)
+    ret_node.right_child = self.__construct(depth + 1, imp_right[ret_node.feature_index], start_idx + col + 1, stop_idx, gpuarrays_out, gpuarrays_in)
     return ret_node 
- 
+
+
   def __predict(self, val):
     temp = self.root
     while True:
@@ -241,20 +295,11 @@ class DecisionTree(object):
     recursive_print(self.root)
 
 
-import time 
-class timer(object):
-  def __init__(self, name):
-    self.name = name
-
-  def __enter__(self, *args):
-    print "Running %s" % self.name 
-    self.start_t = time.time()
-
-  def __exit__(self, *args):
-    print "Time for %s: %s" % (self.name, time.time() - self.start_t)
 
 if __name__ == "__main__":
   import cPickle
+  
+  """
   with open('data_batch_1', 'r') as f:
     train = cPickle.load(f)
     x_train = train['data']
@@ -263,25 +308,19 @@ if __name__ == "__main__":
     test = cPickle.load(f)
     x_test = test['data']
     y_test = np.array(test['fine_labels'])
+  """
 
   ds = sklearn.datasets.load_digits()
   x_train = ds.data
   y_train = ds.target
 
-  import cProfile 
-  """
-  with timer("Scikit-learn"):
-    clf = tree.DecisionTreeClassifier()    
-    #clf.max_depth = 4
-    clf = clf.fit(x_train, y_train)
-  """
-  with timer("CUDA"):
-    d = DecisionTree()  
-    #dataset = sklearn.datasets.load_digits()
-    #num_labels = len(dataset.target_names)  
-    #cProfile.run("d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_CP)")
-    d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_CP, max_depth = None)
-    #d.print_tree()
+
+  d = DecisionTree()  
+  #dataset = sklearn.datasets.load_digits()
+  #num_labels = len(dataset.target_names)  
+  #cProfile.run("d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_CP)")
+  d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_PP, max_depth = None )
+  #d.print_tree()
 
 
 
