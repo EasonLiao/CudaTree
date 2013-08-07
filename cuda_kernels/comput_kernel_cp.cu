@@ -7,19 +7,28 @@
 #define SAMPLE_DATA_TYPE %s
 
 __device__  float calc_imp_right(int label_previous[MAX_NUM_LABELS], int label_now[MAX_NUM_LABELS],  int total_size){
-  float imp = 1.0;
-  for(int i = 0; i < MAX_NUM_LABELS; ++i)
-    imp -= pow(((label_now[i ] - label_previous[i]) / double(total_size)), 2); 
+  float sum = 0.0; 
+  for(int i = 0; i < MAX_NUM_LABELS; ++i){
+    float count = label_now[i] - label_previous[i];
+    sum += count * count;
+  }
 
-  return imp; 
+  float denom = ((float) total_size) * total_size;
+
+  return 1.0 - (sum / denom); 
 }
 
 __device__  float calc_imp_left(int label_now[MAX_NUM_LABELS],  int total_size){
-  float imp = 1.0;
-  for(int i = 0; i < MAX_NUM_LABELS; ++i)
-    imp -= pow(( label_now[i ] / double(total_size)), 2); 
+  float sum = 0.0;
+  for(int i = 0; i < MAX_NUM_LABELS; ++i){
+    float count = label_now[i];
+    sum += count * count;
+  }
+  
+  float denom = ((float) total_size) * total_size;
 
-  return imp; 
+  return 1.0 - (sum / denom); 
+
 }
 
 __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples, 
@@ -29,9 +38,10 @@ __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples,
                         int *split, 
                         int n_features, 
                         int n_samples, 
-                        int leading){
+                        int stride){
 
-  int offset = blockIdx.x * MAX_NUM_LABELS * n_samples;  
+  int label_offset = blockIdx.x * MAX_NUM_LABELS * n_samples;  
+  int samples_offset = blockIdx.x * stride;
   __shared__ int quit;
   __shared__ float shared_imp_left[MAX_THREADS_PER_BLOCK];
   __shared__ float shared_imp_right[MAX_THREADS_PER_BLOCK];
@@ -43,7 +53,7 @@ __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples,
   shared_imp_right[threadIdx.x] = 2;
 
   if(threadIdx.x == 0){
-    if(sorted_samples[blockIdx.x * n_samples] == sorted_samples[blockIdx.x * n_samples + n_samples - 1]){
+    if(sorted_samples[samples_offset] == sorted_samples[samples_offset + n_samples - 1]){
       imp_left[blockIdx.x] = 2;
       imp_right[blockIdx.x] = 2;
       quit = 1;
@@ -58,13 +68,13 @@ __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples,
 
   
   for(int i = begin; i < n_samples - 1; i += step){
-    SAMPLE_DATA_TYPE cur_value = sorted_samples[blockIdx.x * n_samples + i];
-    SAMPLE_DATA_TYPE next_value = sorted_samples[blockIdx.x * n_samples + i + 1];
+    SAMPLE_DATA_TYPE cur_value = sorted_samples[samples_offset + i];
+    SAMPLE_DATA_TYPE next_value = sorted_samples[samples_offset + i + 1];
     if(cur_value == next_value)
       continue;
 
-    float imp_left = ((i + 1) / float(n_samples)) * calc_imp_left(&label_count[i * MAX_NUM_LABELS  + offset],  i + 1);
-    float imp_right = ((n_samples - i - 1) / float(n_samples)) * calc_imp_right(&label_count[i * MAX_NUM_LABELS + offset], &label_count[(n_samples - 1) * MAX_NUM_LABELS + offset], n_samples - i - 1);
+    float imp_left = ((i + 1) / float(n_samples)) * calc_imp_left(&label_count[i * MAX_NUM_LABELS  + label_offset],  i + 1);
+    float imp_right = ((n_samples - i - 1) / float(n_samples)) * calc_imp_right(&label_count[i * MAX_NUM_LABELS + label_offset], &label_count[(n_samples - 1) * MAX_NUM_LABELS + label_offset], n_samples - i - 1);
     float impurity = imp_left + imp_right;
     if(impurity < shared_imp_left[threadIdx.x] + shared_imp_right[threadIdx.x]){
       shared_imp_left[threadIdx.x] = imp_left;

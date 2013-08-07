@@ -25,7 +25,6 @@ class timer(object):
   def __exit__(self, *args):
     print "Time for %s: %s" % (self.name, time.time() - self.start_t)
 
-
 def dtype_to_ctype(dtype):
   if dtype.kind == 'f':
     if dtype == 'float32':
@@ -78,7 +77,6 @@ def mk_shuffle_kernel(kernel_file = "reshuffle.cu"):
     mod = SourceModule(code)
     fn = mod.get_function("reshuffle")
     return fn
-
 
 class Node(object):
   def __init__(self):
@@ -135,7 +133,9 @@ class DecisionTree(object):
     """ Use prepare to improve speed """
     self.kernel.prepare("PPPPPiii")
     self.scan_kernel.prepare("PPiii") 
-    
+    self.fill_kernel.prepare("PiiPi")
+    self.shuffle_kernel.prepare("PPPPPPPiii")
+
     n_features = samples.shape[0]
     self.n_features = n_features
 
@@ -150,7 +150,7 @@ class DecisionTree(object):
     sorted_samples = np.empty((n_features, target.size), dtype = np.float32)
 
     self.label_count = gpuarray.empty(target.size * self.num_labels * samples.shape[0], dtype = np.int32)  
-    
+     
     with timer("argsort"):
       for i,f in enumerate(samples):
         sort_idx = np.argsort(f)
@@ -178,6 +178,7 @@ class DecisionTree(object):
                                   (self.sorted_indices_gpu_, self.sorted_labels_gpu_, self.sorted_samples_gpu_)) 
     
 
+
   def __construct(self, depth, error_rate, start_idx, stop_idx, gpuarrays_in, gpuarrays_out):
     def check_terminate():
       if error_rate == 0 or (self.max_depth is not None and depth > self.max_depth):
@@ -186,7 +187,6 @@ class DecisionTree(object):
         return False 
     
     #print "Height : %s, samples : %d" % (depth, stop_idx - start_idx)
-
     n_samples = stop_idx - start_idx
     offset = start_idx * 4
 
@@ -201,7 +201,6 @@ class DecisionTree(object):
   
     
     grid = (self.n_features, 1) 
-
     if self.compt_kernel_type !=  self.COMPUTE_KERNEL_SS:
       block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
     else:
@@ -232,33 +231,37 @@ class DecisionTree(object):
     imp_left = self.impurity_left.get()
     imp_right = self.impurity_right.get()
     imp_total = imp_left + imp_right
-     
+    
     ret_node.feature_index =  imp_total.argmin()
+    
     row = ret_node.feature_index
     col = self.min_split.get()[row]
   
     #ret_node.feature_threshold = (sorted_samples[row][col] + sorted_samples[row][col + 1]) / 2.0 
     
-    self.fill_kernel(np.intp(gpuarrays_in[0].gpudata) + row * self.stride * 4 + offset, 
-                      np.int32(n_samples), 
-                      np.int32(col), 
-                      self.mark_table, 
-                      np.int32(self.stride), 
-                      block=(1024, 1 ,1), 
-                      grid=(1, 1))
-  
-    self.shuffle_kernel(self.mark_table,
+    self.fill_kernel.prepared_call(
+                      (1, 1),
+                      (1024, 1, 1),
+                      np.intp(gpuarrays_in[0].gpudata) + row * self.stride * 4 + offset, 
+                      n_samples, 
+                      col, 
+                      self.mark_table.gpudata, 
+                      self.stride
+                      )
+
+    self.shuffle_kernel.prepared_call(
+                      (self.n_features, 1),
+                      (1, 1, 1),
+                      self.mark_table.gpudata,
                       np.intp(gpuarrays_in[1].gpudata) + offset,
                       np.intp(gpuarrays_in[0].gpudata) + offset,
                       np.intp(gpuarrays_in[2].gpudata) + offset,
                       np.intp(gpuarrays_out[1].gpudata) + offset,
                       np.intp(gpuarrays_out[0].gpudata) + offset,
                       np.intp(gpuarrays_out[2].gpudata) + offset,
-                      np.int32(n_samples),
-                      np.int32(col),
-                      np.int32(self.stride),
-                      block = (1, 1, 1),
-                      grid = (self.n_features, 1)
+                      n_samples,
+                      col,
+                      self.stride
                       )
 
     ret_node.left_child = self.__construct(depth + 1, imp_left[ret_node.feature_index], start_idx, start_idx + col + 1, gpuarrays_out, gpuarrays_in)
@@ -298,8 +301,6 @@ class DecisionTree(object):
 
 if __name__ == "__main__":
   import cPickle
-  
-  """
   with open('data_batch_1', 'r') as f:
     train = cPickle.load(f)
     x_train = train['data']
@@ -308,19 +309,27 @@ if __name__ == "__main__":
     test = cPickle.load(f)
     x_test = test['data']
     y_test = np.array(test['fine_labels'])
-  """
 
+  """
   ds = sklearn.datasets.load_digits()
   x_train = ds.data
   y_train = ds.target
+  """
 
+  max_depth = None
+  
+  """
+  import cProfile 
+  with timer("Scikit-learn"):
+    clf = tree.DecisionTreeClassifier()    
+    clf.max_depth = max_depth 
+    clf = clf.fit(x_train, y_train) 
+  """
 
-  d = DecisionTree()  
-  #dataset = sklearn.datasets.load_digits()
-  #num_labels = len(dataset.target_names)  
-  #cProfile.run("d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_CP)")
-  d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_PP, max_depth = None )
-  #d.print_tree()
-
-
-
+  with timer("CUDA"):
+    d = DecisionTree()  
+    #dataset = sklearn.datasets.load_digits()
+    #num_labels = len(dataset.target_names)  
+    #cProfile.run("d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_CP)")
+    d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_PP, max_depth = None)
+    #d.print_tree()
