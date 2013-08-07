@@ -1,6 +1,7 @@
 //Utilized the coalesced memory access
 #include<stdio.h>
 #include<math.h>
+#include<stdint.h>
 #define MAX_NUM_SAMPLES %d
 #define MAX_NUM_LABELS %d
 #define MAX_THREADS_PER_BLOCK 256
@@ -100,6 +101,7 @@ __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples,
     }
     
     n_threads = half;
+    __syncthreads(); 
   }
 
   __syncthreads();

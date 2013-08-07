@@ -1,10 +1,12 @@
 //Add parallel reduction to find mininum impurity based on kernel_2.cu
 #include<stdio.h>
 #include<math.h>
+#include<stdint.h>
 #define MAX_NUM_SAMPLES %d
 #define MAX_NUM_LABELS %d
-#define MAX_THREADS_PER_BLOCK 256
+#define MAX_THREADS_PER_BLOCK 256 
 #define SAMPLE_DATA_TYPE %s
+
 
 __device__  float calc_imp_right(int label_previous[MAX_NUM_LABELS], int label_now[MAX_NUM_LABELS], int total_size){
   float sum = 0.0; 
@@ -38,7 +40,9 @@ __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples,
                         int n_features, 
                         int n_samples, 
                         int stride){
+ 
   
+
   int offset = blockIdx.x * MAX_NUM_LABELS * n_samples; 
   int samples_offset = blockIdx.x * stride;
   __shared__ int quit;
@@ -51,11 +55,12 @@ __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples,
   int range_end = (range_begin + range < n_samples)? range_begin + range : n_samples - 1;
   shared_imp_left[threadIdx.x] = 2;
   shared_imp_right[threadIdx.x] = 2;
+  
 
   if(threadIdx.x == 0){
     if(sorted_samples[samples_offset] == sorted_samples[samples_offset + n_samples - 1]){
       imp_left[blockIdx.x] = 2;
-      imp_right[blockIdx.x] = 2;
+      imp_right[blockIdx.x] = 2; 
       quit = 1;
     }
     else
@@ -98,7 +103,8 @@ __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples,
         shared_split_index[threadIdx.x] = shared_split_index[next_thread];
       }
     }
-    
+
+    __syncthreads(); 
     n_threads = half;
   }
 

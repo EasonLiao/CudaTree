@@ -1,13 +1,16 @@
 #include<stdio.h>
 #include<math.h>
+#include<stdint.h>
+#define SAMPLE_DATA_TYPE %s
+
 
 __global__ void reshuffle(int* mark_table,
                           int* sorted_labels,
                           int* sorted_indices,
-                          float* sorted_samples,
+                          SAMPLE_DATA_TYPE* sorted_samples,
                           int* sorted_labels_out,
                           int* sorted_indices_out,
-                          float* sorted_samples_out,
+                          SAMPLE_DATA_TYPE* sorted_samples_out,
                           int n_samples,
                           int split_idx,
                           int stride
@@ -30,8 +33,6 @@ __global__ void reshuffle(int* mark_table,
       right_start++;
     }
   }
-
-
 }
 
 
