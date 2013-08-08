@@ -92,6 +92,7 @@ class Node(object):
 
 
 class DecisionTree(object): 
+  """
   COMPUTE_KERNEL_SS = "comput_kernel_ss.cu"   #One thread per feature.
   COMPUTE_KERNEL_PS = "comput_kernel_ps.cu"   #One block per feature.
   COMPUTE_KERNEL_PP = "comput_kernel_pp.cu"   #Based on kernel 2, add parallel reduction to find minimum impurity.
@@ -100,9 +101,14 @@ class DecisionTree(object):
   SCAN_KERNEL_S = "scan_kernel_s.cu"          #Serialized prefix scan.
   SCAN_KERNEL_P = "scan_kernel_p.cu"          #Simple parallel prefix scan.
   SCAN_KERNEL_P_CM = "scan_kernel_p_cm.cu"          #Simple parallel prefix scan. 
-  SHUFFLE_KERNEL = "reshuffle.cu"
+  """
+  COMPUTE_KERNEL_SS = "comput_kernel_ss.cu"   #One thread per feature.
   
-  COMPT_THREADS_PER_BLOCK = 256  #The number of threads do computation per block.
+  SHUFFLE_KERNEL = "reshuffle.cu"
+  COMPUTE_KERNEL_PART = "comput_kernel_pp_part.cu"   
+  SCAN_KERNEL_PART = "scan_kernel_p_part.cu"          
+
+  COMPT_THREADS_PER_BLOCK = 64  #The number of threads do computation per block.
   SCAN_THREADS_PER_BLOCK = 64   #The number of threads do prefix scan per block.
 
   def __init__(self):
@@ -136,9 +142,8 @@ class DecisionTree(object):
     self.fill_kernel = mk_fill_table_kernel()
     self.shuffle_kernel = mk_shuffle_kernel(samples.dtype)
     
-
     """ Use prepare to improve speed """
-    self.kernel.prepare("PPPPPiii")
+    self.kernel.prepare("PPPPPPiii")
     self.scan_kernel.prepare("PPiii") 
     self.fill_kernel.prepare("PiiPi")
     self.shuffle_kernel.prepare("PPPPPPPiii")
@@ -156,7 +161,7 @@ class DecisionTree(object):
     sorted_labels = np.empty_like(sorted_indices)
     sorted_samples = np.empty((n_features, target.size), dtype = samples.dtype)
      
-    self.label_count = gpuarray.empty(target.size * self.num_labels * samples.shape[0], dtype = np.int32)  
+    self.label_count = gpuarray.empty((self.COMPT_THREADS_PER_BLOCK + 1) * self.num_labels * samples.shape[0], dtype = np.int32)  
     
     with timer("argsort"):
       for i,f in enumerate(samples):
@@ -220,25 +225,29 @@ class DecisionTree(object):
                 self.n_features, 
                 n_samples, 
                 self.stride) 
-    
+
     self.kernel.prepared_call(
               grid,
               block,
               np.intp(gpuarrays_in[2].gpudata) + samples_offset,
+              np.intp(gpuarrays_in[1].gpudata) + offset,
               self.impurity_left.gpudata,
               self.impurity_right.gpudata,
               self.label_count.gpudata,
               self.min_split.gpudata,
               self.n_features, 
               n_samples, 
-              self.stride) 
-    
+              self.stride)
+ 
     imp_left = self.impurity_left.get()
     imp_right = self.impurity_right.get()
     imp_total = imp_left + imp_right
-   
+  
+
     ret_node.feature_index =  imp_total.argmin()
-    
+    if imp_total[ret_node.feature_index] == 4:
+      return ret_node
+
     row = ret_node.feature_index
     col = self.min_split.get()[row]
     #ret_node.feature_threshold = (sorted_samples[row][col] + sorted_samples[row][col + 1]) / 2.0 
@@ -305,34 +314,33 @@ class DecisionTree(object):
 
 if __name__ == "__main__":
   import cPickle
-  with open('data_batch_1', 'r') as f:
+  with open('train', 'r') as f:
     train = cPickle.load(f)
     x_train = train['data']
-    y_train = np.array(train['labels'])
-
-  """
+    y_train = np.array(train['fine_labels'])
+  
   with open('test', 'r') as f:
     test = cPickle.load(f)
     x_test = test['data']
     y_test = np.array(test['fine_labels'])
- 
-  ds = sklearn.datasets.load_digits()
+  
+  ds = sklearn.datasets.load_iris()
   x_train = ds.data
   y_train = ds.target
-  """
 
-  """
   import cProfile 
+  max_depth = 6
+  
+  """
   with timer("Scikit-learn"):
     clf = tree.DecisionTreeClassifier()    
     clf.max_depth = max_depth 
     clf = clf.fit(x_train, y_train) 
   """
-
   with timer("CUDA"):
     d = DecisionTree()  
     #dataset = sklearn.datasets.load_digits()
     #num_labels = len(dataset.target_names)  
     #cProfile.run("d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_CP)")
-    d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_CP)
-    #d.print_tree()
+    d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_PART, DecisionTree.COMPUTE_KERNEL_PART, max_depth = None)
+    d.print_tree()
