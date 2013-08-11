@@ -12,8 +12,9 @@ from pycuda import gpuarray
 from pycuda.compiler import SourceModule
 import math
 import sys
-
 import time 
+from time import sleep
+
 class timer(object):
   def __init__(self, name):
     self.name = name
@@ -35,21 +36,21 @@ def dtype_to_ctype(dtype):
   assert dtype.kind in ('u', 'i')
   return "%s_t" % dtype 
 
-def mk_kernel(n_samples, n_labels, datatype, kernel_file,  _cache = {}):
+def mk_kernel(n_samples, n_labels, dtype_samples, dtype_labels, dtype_counts, kernel_file,  _cache = {}):
   kernel_file = "cuda_kernels/" + kernel_file
-  key = (n_samples, n_labels, datatype)
+  key = (n_samples, n_labels, dtype_samples, dtype_labels)
   if key in _cache:
     return _cache[key]
   
   with open(kernel_file) as code_file:
     code = code_file.read() 
-    src = code % (n_samples, n_labels, dtype_to_ctype(datatype))
+    src = code % (n_samples, n_labels, dtype_to_ctype(dtype_samples), dtype_to_ctype(dtype_labels), dtype_to_ctype(dtype_counts))
     mod = SourceModule(src)
     fn = mod.get_function("compute")
     _cache[key] = fn
     return fn
 
-def mk_scan_kernel(n_samples, n_labels, kernel_file, n_threads,  _cache = {}):
+def mk_scan_kernel(n_samples, n_labels, kernel_file, n_threads, dtype_labels, dtype_counts,  _cache = {}):
   kernel_file = "cuda_kernels/" + kernel_file
   key = (n_samples, n_labels)
   if key in _cache:
@@ -57,24 +58,26 @@ def mk_scan_kernel(n_samples, n_labels, kernel_file, n_threads,  _cache = {}):
   
   with open(kernel_file) as code_file:
     code = code_file.read()  
-    mod = SourceModule(code % (n_samples, n_labels, n_threads))
+    src = code % (n_samples, n_labels, n_threads, dtype_to_ctype(dtype_labels), dtype_to_ctype(dtype_counts))
+    mod = SourceModule(src)
     fn = mod.get_function("prefix_scan")
     _cache[key] = fn
     return fn
 
-def mk_fill_table_kernel(kernel_file = "fill_table.cu"):
-  kernel_file = "cuda_kernels/" + kernel_file
-  with open(kernel_file) as code_file:
-    code = code_file.read()  
-    mod = SourceModule(code)
-    fn = mod.get_function("fill_table")
-    return fn
-
-def mk_shuffle_kernel(datatype, kernel_file = "reshuffle.cu"):
+def mk_fill_table_kernel(dtype_indices, kernel_file = "fill_table.cu"):
   kernel_file = "cuda_kernels/" + kernel_file
   with open(kernel_file) as code_file:
     code = code_file.read()
-    src = code % (dtype_to_ctype(datatype), ) 
+    src = code % (dtype_to_ctype(dtype_indices), )
+    mod = SourceModule(src)
+    fn = mod.get_function("fill_table")
+    return fn
+
+def mk_shuffle_kernel(dtype_samples, dtype_labels, dtype_indices, kernel_file = "reshuffle.cu"):
+  kernel_file = "cuda_kernels/" + kernel_file
+  with open(kernel_file) as code_file:
+    code = code_file.read()
+    src = code % (dtype_to_ctype(dtype_samples), dtype_to_ctype(dtype_labels), dtype_to_ctype(dtype_indices)) 
     mod = SourceModule(src)
     fn = mod.get_function("reshuffle")
     return fn
@@ -106,6 +109,7 @@ class DecisionTree(object):
   
   SHUFFLE_KERNEL = "reshuffle.cu"
   COMPUTE_KERNEL_PART = "comput_kernel_pp_part.cu"   
+  COMPUTE_KERNEL_PART_SK = "comput_kernel_pp_part_skip.cu"   
   SCAN_KERNEL_PART = "scan_kernel_p_part.cu"          
 
   COMPT_THREADS_PER_BLOCK = 64  #The number of threads do computation per block.
@@ -118,29 +122,48 @@ class DecisionTree(object):
     self.label_count = None
     self.max_depth = None
     self.stride = None
+    self.dtype_labels = None
+    self.dtype_samples = None
+    self.dtype_indices = None
+    self.dtype_counts = None
 
   def fit(self, samples, target, scan_kernel_type, compt_kernel_type, max_depth = None):
+    def get_best_dtype(max_value):
+      """ Find the best dtype to minimize the memory usage"""
+      if max_value <= np.iinfo(np.uint8).max:
+        return np.dtype(np.uint8)
+      if max_value <= np.iinfo(np.uint16).max:
+        return np.dtype(np.uint16)
+      if max_value <= np.iinfo(np.uint32).max:
+        return np.dtype(np.uint32)
+      else:
+        return np.dtype(np.uint64)
+         
     assert isinstance(samples, np.ndarray)
     assert isinstance(target, np.ndarray)
     assert samples.size / samples[0].size == target.size
       
     self.max_depth = max_depth
-    self.num_labels = np.max(target) + 1 #np.unique(target).size   
+    self.num_labels = np.max(target) + 1    
     self.stride = target.size
-   
-    self.compt_kernel_type = compt_kernel_type
-    
-    with timer("transpose"): 
-      samples = np.require(np.transpose(samples), requirements = 'C')
-      target = np.require(np.transpose(target), dtype = np.int32, requirements = 'C') 
-    
-    self.samples_itemsize = samples.itemsize
-    self.labels_itemsize = target.itemsize
+  
+    self.dtype_indices = get_best_dtype(target.size)
+    self.dtype_counts = self.dtype_indices
+    self.dtype_labels = get_best_dtype(self.num_labels)
+    self.dtype_samples = samples.dtype
 
-    self.kernel = mk_kernel(target.size, self.num_labels, samples.dtype, compt_kernel_type)
-    self.scan_kernel = mk_scan_kernel(target.size, self.num_labels, scan_kernel_type, self.SCAN_THREADS_PER_BLOCK)
-    self.fill_kernel = mk_fill_table_kernel()
-    self.shuffle_kernel = mk_shuffle_kernel(samples.dtype)
+    self.compt_kernel_type = compt_kernel_type
+
+    samples = np.require(np.transpose(samples), requirements = 'C')
+    target = np.require(np.transpose(target), dtype = self.dtype_labels, requirements = 'C') 
+    
+    self.samples_itemsize = self.dtype_samples.itemsize
+    self.labels_itemsize = self.dtype_labels.itemsize
+    
+    self.kernel = mk_kernel(target.size, self.num_labels, self.dtype_samples, self.dtype_labels, self.dtype_counts, compt_kernel_type)
+    self.scan_kernel = mk_scan_kernel(target.size, self.num_labels, scan_kernel_type, self.SCAN_THREADS_PER_BLOCK, self.dtype_labels, self.dtype_counts)
+    self.fill_kernel = mk_fill_table_kernel(dtype_indices = self.dtype_indices)
+    self.shuffle_kernel = mk_shuffle_kernel(self.dtype_samples, self.dtype_labels, self.dtype_indices)
     
     """ Use prepare to improve speed """
     self.kernel.prepare("PPPPPPiii")
@@ -154,14 +177,14 @@ class DecisionTree(object):
     """ Pre-allocate the GPU memory, don't allocate everytime in __construct"""
     self.impurity_left = gpuarray.empty(n_features, dtype = np.float32)
     self.impurity_right = gpuarray.empty(n_features, dtype = np.float32)
-    self.min_split = gpuarray.empty(n_features, dtype = np.int32)
-    self.mark_table = gpuarray.empty(target.size, dtype = np.int32)
+    self.min_split = gpuarray.empty(n_features, dtype = self.dtype_counts)
+    self.mark_table = gpuarray.empty(target.size, dtype = self.dtype_counts)
 
-    sorted_indices = np.empty((n_features, target.size), dtype = np.int32)
-    sorted_labels = np.empty_like(sorted_indices)
-    sorted_samples = np.empty((n_features, target.size), dtype = samples.dtype)
+    sorted_indices = np.empty((n_features, target.size), dtype = self.dtype_indices)
+    sorted_labels = np.empty((n_features, target.size), dtype = self.dtype_labels)
+    sorted_samples = np.empty((n_features, target.size), dtype = self.dtype_samples)
      
-    self.label_count = gpuarray.empty((self.COMPT_THREADS_PER_BLOCK + 1) * self.num_labels * samples.shape[0], dtype = np.int32)  
+    self.label_count = gpuarray.empty((self.COMPT_THREADS_PER_BLOCK + 1) * self.num_labels * samples.shape[0], dtype = self.dtype_counts)  
     
     with timer("argsort"):
       for i,f in enumerate(samples):
@@ -170,20 +193,19 @@ class DecisionTree(object):
         sorted_labels[i] = target[sort_idx]
         sorted_samples[i] = samples[i][sort_idx]
   
-    with timer("to gpu"): 
-      self.sorted_samples_gpu = gpuarray.to_gpu(sorted_samples)
-      self.sorted_indices_gpu = gpuarray.to_gpu(sorted_indices)
-      self.sorted_labels_gpu = gpuarray.to_gpu(sorted_labels)    
-      self.sorted_samples_gpu_ = self.sorted_samples_gpu.copy()
-      self.sorted_indices_gpu_ = self.sorted_indices_gpu.copy()
-      self.sorted_labels_gpu_ = self.sorted_labels_gpu.copy()
-      sorted_samples = None
-      sorted_indices = None
-      sorted_labels = None
+    self.sorted_samples_gpu = gpuarray.to_gpu(sorted_samples)
+    self.sorted_indices_gpu = gpuarray.to_gpu(sorted_indices)
+    self.sorted_labels_gpu = gpuarray.to_gpu(sorted_labels)    
+    self.sorted_samples_gpu_ = self.sorted_samples_gpu.copy() 
+    self.sorted_indices_gpu_ = self.sorted_indices_gpu.copy()
+    self.sorted_labels_gpu_ = self.sorted_labels_gpu.copy()
+    sorted_samples = None
+    sorted_indices = None
+    sorted_labels = None
 
-    assert self.sorted_indices_gpu.strides[0] == target.size * target.itemsize 
-    assert self.sorted_labels_gpu.strides[0] == target.size * target.itemsize 
-    assert self.sorted_samples_gpu.strides[0] == target.size * samples.itemsize 
+    assert self.sorted_indices_gpu.strides[0] == target.size * self.sorted_indices_gpu.dtype.itemsize 
+    assert self.sorted_labels_gpu.strides[0] == target.size * self.sorted_labels_gpu.dtype.itemsize 
+    assert self.sorted_samples_gpu.strides[0] == target.size * self.sorted_samples_gpu.dtype.itemsize 
     
     self.root = self.__construct(1, 1.0, 0, target.size, (self.sorted_indices_gpu, self.sorted_labels_gpu, self.sorted_samples_gpu),
                                   (self.sorted_indices_gpu_, self.sorted_labels_gpu_, self.sorted_samples_gpu_)) 
@@ -196,12 +218,12 @@ class DecisionTree(object):
       else:
         return False 
     
-    #print "Height : %s, samples : %d" % (depth, stop_idx - start_idx)
     n_samples = stop_idx - start_idx
-
-    offset = start_idx * self.labels_itemsize
+    labels_offset = start_idx * self.labels_itemsize
     samples_offset = start_idx * self.samples_itemsize
+    indices_offset =  start_idx * self.dtype_indices.itemsize
 
+    
     ret_node = Node()
     ret_node.error = error_rate
     ret_node.samples = n_samples 
@@ -220,17 +242,17 @@ class DecisionTree(object):
     self.scan_kernel.prepared_call(
                 grid,
                 (self.SCAN_THREADS_PER_BLOCK, 1, 1),
-                np.intp(gpuarrays_in[1].gpudata) + offset, 
+                np.intp(gpuarrays_in[1].gpudata) + labels_offset, 
                 self.label_count.gpudata,
                 self.n_features, 
                 n_samples, 
                 self.stride) 
-
+    
     self.kernel.prepared_call(
               grid,
               block,
               np.intp(gpuarrays_in[2].gpudata) + samples_offset,
-              np.intp(gpuarrays_in[1].gpudata) + offset,
+              np.intp(gpuarrays_in[1].gpudata) + labels_offset,
               self.impurity_left.gpudata,
               self.impurity_right.gpudata,
               self.label_count.gpudata,
@@ -238,39 +260,52 @@ class DecisionTree(object):
               self.n_features, 
               n_samples, 
               self.stride)
- 
-    imp_left = self.impurity_left.get()
-    imp_right = self.impurity_right.get()
-    imp_total = imp_left + imp_right
-  
 
+
+    def get_left():
+      return self.impurity_left.get()
+    
+    def get_right():
+       return self.impurity_right.get()
+    
+    def get_min_split():
+      return self.min_split.get()
+
+    #get_min_split()
+    #get_right()
+    #get_left()
+    imp_right = get_right() #self.impurity_right.get()
+    imp_left = get_left() #self.impurity_left.get()
+     
+    imp_total = imp_left + imp_right
     ret_node.feature_index =  imp_total.argmin()
+
     if imp_total[ret_node.feature_index] == 4:
       return ret_node
 
     row = ret_node.feature_index
-    col = self.min_split.get()[row]
+    col = get_min_split()[row]
     #ret_node.feature_threshold = (sorted_samples[row][col] + sorted_samples[row][col + 1]) / 2.0 
     
     self.fill_kernel.prepared_call(
                       (1, 1),
                       (1024, 1, 1),
-                      np.intp(gpuarrays_in[0].gpudata) + row * self.stride * 4 + offset, 
+                      np.intp(gpuarrays_in[0].gpudata) + row * self.stride * self.dtype_indices.itemsize + indices_offset, 
                       n_samples, 
                       col, 
                       self.mark_table.gpudata, 
                       self.stride
                       )
-
+    
     self.shuffle_kernel.prepared_call(
                       (self.n_features, 1),
                       (1, 1, 1),
                       self.mark_table.gpudata,
-                      np.intp(gpuarrays_in[1].gpudata) + offset,
-                      np.intp(gpuarrays_in[0].gpudata) + offset,
+                      np.intp(gpuarrays_in[1].gpudata) + labels_offset,
+                      np.intp(gpuarrays_in[0].gpudata) + indices_offset,
                       np.intp(gpuarrays_in[2].gpudata) + samples_offset,
-                      np.intp(gpuarrays_out[1].gpudata) + offset,
-                      np.intp(gpuarrays_out[0].gpudata) + offset,
+                      np.intp(gpuarrays_out[1].gpudata) + labels_offset,
+                      np.intp(gpuarrays_out[0].gpudata) + indices_offset,
                       np.intp(gpuarrays_out[2].gpudata) + samples_offset,
                       n_samples,
                       col,
@@ -280,7 +315,6 @@ class DecisionTree(object):
     ret_node.left_child = self.__construct(depth + 1, imp_left[ret_node.feature_index], start_idx, start_idx + col + 1, gpuarrays_out, gpuarrays_in)
     ret_node.right_child = self.__construct(depth + 1, imp_right[ret_node.feature_index], start_idx + col + 1, stop_idx, gpuarrays_out, gpuarrays_in)
     return ret_node 
-
 
   def __predict(self, val):
     temp = self.root
@@ -310,8 +344,6 @@ class DecisionTree(object):
     assert self.root is not None
     recursive_print(self.root)
 
-
-
 if __name__ == "__main__":
   import cPickle
   with open('train', 'r') as f:
@@ -323,21 +355,21 @@ if __name__ == "__main__":
     test = cPickle.load(f)
     x_test = test['data']
     y_test = np.array(test['fine_labels'])
-  
+
+  print x_train.dtype
+  print dtype_to_ctype(x_train.dtype)
   ds = sklearn.datasets.load_iris()
   x_train = ds.data
   y_train = ds.target
-
   import cProfile 
   max_depth = 6
-  
   """
   with timer("Scikit-learn"):
     clf = tree.DecisionTreeClassifier()    
     clf.max_depth = max_depth 
     clf = clf.fit(x_train, y_train) 
   """
-  with timer("CUDA"):
+  with timer("Cuda"):
     d = DecisionTree()  
     #dataset = sklearn.datasets.load_digits()
     #num_labels = len(dataset.target_names)  

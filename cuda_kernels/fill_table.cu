@@ -1,10 +1,12 @@
 #include<stdio.h>
 #include<math.h>
+#include<stdint.h>
+#define IDX_DATA_TYPE %s
 
-__global__ void fill_table(int* sorted_indices,
+__global__ void fill_table(IDX_DATA_TYPE *sorted_indices,
                           int n_samples,
                           int split_idx,
-                          int *mark_table,
+                          IDX_DATA_TYPE  *mark_table,
                           int stride
                           ){
 
