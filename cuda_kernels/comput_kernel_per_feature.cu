@@ -2,8 +2,7 @@
 #include<stdio.h>
 #include<math.h>
 #include<stdint.h>
-#define MAX_THREADS_PER_BLOCK 256 
-#define MAX_NUM_SAMPLES %d
+#define THREADS_PER_BLOCK %d 
 #define MAX_NUM_LABELS %d
 #define SAMPLE_DATA_TYPE %s
 #define LABEL_DATA_TYPE %s
@@ -35,69 +34,73 @@ __device__  float calc_imp_left(COUNT_DATA_TYPE label_now[MAX_NUM_LABELS], int t
 
 __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples, 
                         LABEL_DATA_TYPE *sorted_labels,
+                        COUNT_DATA_TYPE *label_count,
                         float *imp_left, 
                         float *imp_right, 
-                        COUNT_DATA_TYPE *label_count,
                         COUNT_DATA_TYPE *split, 
-                        int n_features, 
-                        int n_samples, 
-                        int stride){
-  int count_offset = blockIdx.x * MAX_NUM_LABELS * (blockDim.x + 1); 
-  int samples_offset = blockIdx.x * stride;
-  int labels_offset = blockIdx.x * stride;
+                        int range, 
+                        int n_active_threads, 
+                        int n_samples){
   
+  int thread_offset = blockIdx.x * blockDim.x;
+  int thread_id = threadIdx.x + thread_offset;
+  int range_begin = thread_id * range;
+  int range_end = (range_begin + range < n_samples - 1) ? range_begin + range : n_samples - 1;
   __shared__ int quit;
-  __shared__ float shared_imp_left[MAX_THREADS_PER_BLOCK];
-  __shared__ float shared_imp_right[MAX_THREADS_PER_BLOCK];
-  __shared__ COUNT_DATA_TYPE shared_split_index[MAX_THREADS_PER_BLOCK];
+  __shared__ float shared_imp_left[THREADS_PER_BLOCK];
+  __shared__ float shared_imp_right[THREADS_PER_BLOCK];
+  __shared__ COUNT_DATA_TYPE shared_split_index[THREADS_PER_BLOCK];
+  __shared__ COUNT_DATA_TYPE shared_label_count_total[MAX_NUM_LABELS];
 
-  int range = ceil(double(n_samples) / blockDim.x);
-  int n_active_threads = ceil(double(n_samples) / range);     //The number of threads that have the actual work to do.
-  int range_begin =(threadIdx.x * range < n_samples)? threadIdx.x * range : n_samples - 1;
-  int range_end = (range_begin + range < n_samples)? range_begin + range : n_samples - 1;
-  
-  shared_imp_left[threadIdx.x] = 2;
-  shared_imp_right[threadIdx.x] = 2;
 
+  shared_imp_left[threadIdx.x] = 2.0;
+  shared_imp_right[threadIdx.x] = 2.0;
+
+  //Check if this block should be skipped.
   if(threadIdx.x == 0){
-    if(sorted_samples[samples_offset] == sorted_samples[samples_offset + n_samples - 1]){
+    int start_sample_idx = thread_offset * range;
+    int stop_sample_idx = (blockIdx.x + 1) * blockDim.x * range - 1;
+    stop_sample_idx = (stop_sample_idx > n_samples - 1)? n_samples -1 : stop_sample_idx;
+
+    if(sorted_samples[start_sample_idx] == sorted_samples[stop_sample_idx]){
       imp_left[blockIdx.x] = 2;
-      imp_right[blockIdx.x] = 2; 
+      imp_right[blockIdx.x] = 2;
       quit = 1;
     }
     else
       quit = 0;
+  
+    
+    for(int l = 0; l < MAX_NUM_LABELS; ++l)  
+      shared_label_count_total[l] = label_count[n_active_threads * MAX_NUM_LABELS + l];
   }
 
   __syncthreads();
   
-
   if(quit == 1)
-    return; 
-   
+    return;
+ 
+  //printf("%%d -- %%d\n", range_begin, range_end);
   for(int i = range_begin; i < range_end; ++i){
-    LABEL_DATA_TYPE label_val = sorted_labels[labels_offset + i];
-    label_count[count_offset + threadIdx.x * MAX_NUM_LABELS + label_val]++;
+    LABEL_DATA_TYPE label_val = sorted_labels[i];
+    label_count[thread_id * MAX_NUM_LABELS + label_val]++;
     
-    if(sorted_samples[samples_offset + i] == sorted_samples[samples_offset + i + 1])
+    if(sorted_samples[i] == sorted_samples[i + 1])
       continue;
-    
-    float imp_left = ((i + 1) / float(n_samples)) * calc_imp_left(&label_count[count_offset + threadIdx.x * MAX_NUM_LABELS], i + 1);
-    float imp_right = ((n_samples - i - 1) / float(n_samples)) * calc_imp_right(&label_count[count_offset + threadIdx.x * MAX_NUM_LABELS],
-                                                                                &label_count[count_offset + n_active_threads * MAX_NUM_LABELS], n_samples - i - 1);
-    
+      
+    float imp_left = ((i + 1) / float(n_samples)) * calc_imp_left(&label_count[thread_id * MAX_NUM_LABELS], i + 1);
+    float imp_right = ((n_samples - i - 1) / float(n_samples)) * calc_imp_right(&label_count[thread_id * MAX_NUM_LABELS],
+                                                                                shared_label_count_total, n_samples - i - 1);
     float impurity = imp_left + imp_right;
-   
     if(impurity < shared_imp_left[threadIdx.x] + shared_imp_right[threadIdx.x]){
       shared_imp_left[threadIdx.x] = imp_left;
       shared_imp_right[threadIdx.x] = imp_right;
-      shared_split_index[threadIdx.x] = i;
-    }  
-    
-  }
-  
+      shared_split_index[threadIdx.x] = i;  
+    }
+  } 
+
   __syncthreads();
- 
+  
   int n_threads = blockDim.x;
   int next_thread;
 
@@ -112,16 +115,14 @@ __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples,
         shared_split_index[threadIdx.x] = shared_split_index[next_thread];
       }
     }
-
     __syncthreads(); 
     n_threads = half;
   }
- 
-  __syncthreads();
-  
+
   if(threadIdx.x != 0)
     return;
   
+
   imp_left[blockIdx.x] = shared_imp_left[0];
   imp_right[blockIdx.x] = shared_imp_right[0];
   split[blockIdx.x] = shared_split_index[0];  

@@ -199,6 +199,7 @@ class DecisionTree(object):
     self.sorted_samples_gpu_ = self.sorted_samples_gpu.copy() 
     self.sorted_indices_gpu_ = self.sorted_indices_gpu.copy()
     self.sorted_labels_gpu_ = self.sorted_labels_gpu.copy()
+    
     sorted_samples = None
     sorted_indices = None
     sorted_labels = None
@@ -248,6 +249,7 @@ class DecisionTree(object):
                 n_samples, 
                 self.stride) 
     
+
     self.kernel.prepared_call(
               grid,
               block,
@@ -260,7 +262,7 @@ class DecisionTree(object):
               self.n_features, 
               n_samples, 
               self.stride)
-
+        
 
     def get_left():
       return self.impurity_left.get()
@@ -278,6 +280,7 @@ class DecisionTree(object):
     imp_left = get_left() #self.impurity_left.get()
      
     imp_total = imp_left + imp_right
+    
     ret_node.feature_index =  imp_total.argmin()
 
     if imp_total[ret_node.feature_index] == 4:
@@ -285,6 +288,8 @@ class DecisionTree(object):
 
     row = ret_node.feature_index
     col = get_min_split()[row]
+    
+    
     #ret_node.feature_threshold = (sorted_samples[row][col] + sorted_samples[row][col + 1]) / 2.0 
     
     self.fill_kernel.prepared_call(
@@ -296,6 +301,7 @@ class DecisionTree(object):
                       self.mark_table.gpudata, 
                       self.stride
                       )
+    
     
     self.shuffle_kernel.prepared_call(
                       (self.n_features, 1),
@@ -311,6 +317,10 @@ class DecisionTree(object):
                       col,
                       self.stride
                       )
+    
+    print "depth:%s  row:%s  col:%s min:%s" % (depth, row, col, imp_total[ret_node.feature_index])
+    if depth > 3:
+      return
 
     ret_node.left_child = self.__construct(depth + 1, imp_left[ret_node.feature_index], start_idx, start_idx + col + 1, gpuarrays_out, gpuarrays_in)
     ret_node.right_child = self.__construct(depth + 1, imp_right[ret_node.feature_index], start_idx + col + 1, stop_idx, gpuarrays_out, gpuarrays_in)
@@ -346,23 +356,21 @@ class DecisionTree(object):
 
 if __name__ == "__main__":
   import cPickle
-  with open('train', 'r') as f:
+  with open('data_batch_1', 'r') as f:
     train = cPickle.load(f)
     x_train = train['data']
-    y_train = np.array(train['fine_labels'])
+    y_train = np.array(train['labels'])
   
   with open('test', 'r') as f:
     test = cPickle.load(f)
     x_test = test['data']
     y_test = np.array(test['fine_labels'])
-
   print x_train.dtype
   print dtype_to_ctype(x_train.dtype)
-  ds = sklearn.datasets.load_iris()
+  ds = sklearn.datasets.load_digits()
   x_train = ds.data
   y_train = ds.target
-  import cProfile 
-  max_depth = 6
+  
   """
   with timer("Scikit-learn"):
     clf = tree.DecisionTreeClassifier()    
@@ -375,4 +383,4 @@ if __name__ == "__main__":
     #num_labels = len(dataset.target_names)  
     #cProfile.run("d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_CP)")
     d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_PART, DecisionTree.COMPUTE_KERNEL_PART, max_depth = None)
-    d.print_tree()
+    #d.print_tree()
