@@ -14,6 +14,7 @@ import math
 import sys
 import time 
 from time import sleep
+import cPickle
 
 class timer(object):
   def __init__(self, name):
@@ -142,15 +143,17 @@ class DecisionTree(object):
     assert isinstance(samples, np.ndarray)
     assert isinstance(target, np.ndarray)
     assert samples.size / samples[0].size == target.size
-      
+    
+
     self.max_depth = max_depth
-    self.num_labels = np.max(target) + 1    
+    self.num_labels = int(np.max(target)) + 1    
     self.stride = target.size
   
     self.dtype_indices = get_best_dtype(target.size)
     self.dtype_counts = self.dtype_indices
     self.dtype_labels = get_best_dtype(self.num_labels)
     self.dtype_samples = samples.dtype
+      
 
     self.compt_kernel_type = compt_kernel_type
 
@@ -183,7 +186,10 @@ class DecisionTree(object):
     sorted_indices = np.empty((n_features, target.size), dtype = self.dtype_indices)
     sorted_labels = np.empty((n_features, target.size), dtype = self.dtype_labels)
     sorted_samples = np.empty((n_features, target.size), dtype = self.dtype_samples)
-     
+    
+    print (self.COMPT_THREADS_PER_BLOCK + 1) * self.num_labels * samples.shape[0]
+
+    #self.label_count = gpuarray.empty(2, dtype = self.dtype_counts)  
     self.label_count = gpuarray.empty((self.COMPT_THREADS_PER_BLOCK + 1) * self.num_labels * samples.shape[0], dtype = self.dtype_counts)  
     
     with timer("argsort"):
@@ -289,7 +295,7 @@ class DecisionTree(object):
     row = ret_node.feature_index
     col = get_min_split()[row]
     
-    
+    print "depth:%d  row:%s  col:%s  min:%s" % (depth, row, col, imp_total[row]) 
     #ret_node.feature_threshold = (sorted_samples[row][col] + sorted_samples[row][col + 1]) / 2.0 
     
     self.fill_kernel.prepared_call(
@@ -318,10 +324,6 @@ class DecisionTree(object):
                       self.stride
                       )
     
-    print "depth:%s  row:%s  col:%s min:%s" % (depth, row, col, imp_total[ret_node.feature_index])
-    if depth > 3:
-      return
-
     ret_node.left_child = self.__construct(depth + 1, imp_left[ret_node.feature_index], start_idx, start_idx + col + 1, gpuarrays_out, gpuarrays_in)
     ret_node.right_child = self.__construct(depth + 1, imp_right[ret_node.feature_index], start_idx + col + 1, stop_idx, gpuarrays_out, gpuarrays_in)
     return ret_node 
@@ -360,17 +362,14 @@ if __name__ == "__main__":
     train = cPickle.load(f)
     x_train = train['data']
     y_train = np.array(train['labels'])
-  
-  with open('test', 'r') as f:
-    test = cPickle.load(f)
-    x_test = test['data']
-    y_test = np.array(test['fine_labels'])
-  print x_train.dtype
-  print dtype_to_ctype(x_train.dtype)
-  ds = sklearn.datasets.load_digits()
-  x_train = ds.data
-  y_train = ds.target
-  
+ 
+  """
+  data = cPickle.load(open("/scratch1/imagenet-pickle/train-data.pickle.0"))
+  x_train = data['fc']
+  print x_train.shape
+  y_train = data['labels'].reshape(122111)
+  """
+
   """
   with timer("Scikit-learn"):
     clf = tree.DecisionTreeClassifier()    
@@ -382,5 +381,5 @@ if __name__ == "__main__":
     #dataset = sklearn.datasets.load_digits()
     #num_labels = len(dataset.target_names)  
     #cProfile.run("d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_CP)")
-    d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_PART, DecisionTree.COMPUTE_KERNEL_PART, max_depth = None)
+    d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_PART, DecisionTree.COMPUTE_KERNEL_PART)
     #d.print_tree()
