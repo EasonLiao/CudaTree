@@ -14,6 +14,7 @@ import math
 import sys
 import time 
 from time import sleep
+from sklearn.ensemble import RandomForestClassifier
 
 class timer(object):
   def __init__(self, name):
@@ -25,6 +26,8 @@ class timer(object):
 
   def __exit__(self, *args):
     print "Time for %s: %s" % (self.name, time.time() - self.start_t)
+
+
 
 def dtype_to_ctype(dtype):
   if dtype.kind == 'f':
@@ -194,6 +197,10 @@ class DecisionTreeMedium(object):
 
     self.samples_itemsize = self.dtype_samples.itemsize
     self.labels_itemsize = self.dtype_labels.itemsize
+    
+    self.labels_stride = self.stride * self.dtype_labels.itemsize
+    self.samples_stride = self.stride * self.dtype_samples.itemsize
+    self.indices_stride = self.stride * self.dtype_indices.itemsize
   
     """ Compile kernels """
     self.kernel = mk_kernel(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_samples, self.dtype_labels, self.dtype_counts)
@@ -241,7 +248,7 @@ class DecisionTreeMedium(object):
         sorted_labels[i] = target[sort_idx]
         sorted_samples[i] = samples[i][sort_idx]
    
-    with timer("gpu memory allocation:"):
+    with timer("gpu memory allocation"):
       self.sorted_samples_gpu = gpuarray.to_gpu(sorted_samples)
       self.sorted_labels_gpu = gpuarray.to_gpu(sorted_labels)
       self.sorted_indices_gpu = gpuarray.to_gpu(sorted_indices)
@@ -272,10 +279,6 @@ class DecisionTreeMedium(object):
     samples_offset = start_idx * self.samples_itemsize
     indices_offset =  start_idx * self.dtype_indices.itemsize
     
-    labels_stride = self.stride * self.dtype_labels.itemsize
-    samples_stride = self.stride * self.dtype_samples.itemsize
-    indices_stride = self.stride * self.dtype_indices.itemsize
-
     ret_node = Node()
     ret_node.error = error_rate
     ret_node.samples = n_samples 
@@ -296,56 +299,57 @@ class DecisionTreeMedium(object):
     min_imp_left = 2.0
     min_imp_right = 2.0
     
-    for f_idx in xrange(self.n_features):
-      self.scan_kernel.prepared_call(
-                  grid,
-                  block,
-                  self.sorted_labels_gpu.ptr + f_idx * labels_stride + labels_offset, 
-                  self.label_count.ptr,
-                  range_size, 
-                  n_samples)
+    with timer("loop1"):
+      for f_idx in xrange(self.n_features):
+        self.scan_kernel.prepared_call(
+                    grid,
+                    block,
+                    self.sorted_labels_gpu.ptr + f_idx * self.labels_stride + labels_offset, 
+                    self.label_count.ptr,
+                    range_size, 
+                    n_samples)
+       
+        self.scan_kernel_2.prepared_call(
+                    (1, 1),
+                    (1, 1, 1),
+                    self.label_count.ptr,
+                    n_active_threads,
+                    self.COMPT_THREADS_PER_BLOCK,
+                    num_blocks,
+                    n_samples)
      
-      self.scan_kernel_2.prepared_call(
-                  (1, 1),
-                  (1, 1, 1),
-                  self.label_count.ptr,
-                  n_active_threads,
-                  self.COMPT_THREADS_PER_BLOCK,
-                  num_blocks,
-                  n_samples)
-   
-      self.scan_kernel_3.prepared_call(
-                  grid,
-                  block,
-                  self.label_count.ptr,
-                  n_active_threads,
-                  range_size,
-                  n_samples)
-    
-      self.kernel.prepared_call(
-                  grid,
-                  block,
-                  self.sorted_samples_gpu.ptr + f_idx * samples_stride + samples_offset,
-                  self.sorted_labels_gpu.ptr + f_idx * labels_stride + labels_offset,
-                  self.label_count.ptr,
-                  self.impurity_left.ptr,
-                  self.impurity_right.ptr,
-                  self.min_split.ptr,
-                  range_size,
-                  n_active_threads,
-                  n_samples)
-    
-      imp_total = (self.impurity_left + self.impurity_right).get()
-      idx = imp_total[:num_blocks].argmin()
-      feature_min = imp_total[idx]
+        self.scan_kernel_3.prepared_call(
+                    grid,
+                    block,
+                    self.label_count.ptr,
+                    n_active_threads,
+                    range_size,
+                    n_samples)
+      
+        self.kernel.prepared_call(
+                    grid,
+                    block,
+                    self.sorted_samples_gpu.ptr + f_idx * self.samples_stride + samples_offset,
+                    self.sorted_labels_gpu.ptr + f_idx * self.labels_stride + labels_offset,
+                    self.label_count.ptr,
+                    self.impurity_left.ptr,
+                    self.impurity_right.ptr,
+                    self.min_split.ptr,
+                    range_size,
+                    n_active_threads,
+                    n_samples)
+      
+        imp_total = (self.impurity_left + self.impurity_right).get()
+        idx = imp_total[:num_blocks].argmin()
+        feature_min = imp_total[idx]
 
-      if feature_min < min_imp_val:
-        min_imp_val = feature_min
-        min_row_idx = f_idx
-        min_col_idx = self.min_split.get()[idx]
-        min_imp_left = self.impurity_left.get()[idx]
-        min_imp_right = self.impurity_right.get()[idx]
-
+        if feature_min < min_imp_val:
+          min_imp_val = feature_min
+          min_row_idx = f_idx
+          min_col_idx = self.min_split.get()[idx]
+          min_imp_left = self.impurity_left.get()[idx]
+          min_imp_right = self.impurity_right.get()[idx]
+    
 
     """ Which means all the samples in this node have same values for all features. """
     if min_imp_val >= 4.0:
@@ -354,63 +358,70 @@ class DecisionTreeMedium(object):
     self.fill_kernel.prepared_call(
                       (1, 1),
                       (1024, 1, 1),
-                      self.sorted_indices_gpu.ptr + min_row_idx * indices_stride + indices_offset, 
+                      self.sorted_indices_gpu.ptr + min_row_idx * self.indices_stride + indices_offset, 
                       n_samples, 
                       min_col_idx, 
                       self.mark_table.ptr)
- 
-    for f_idx in xrange(self.n_features): 
-      self.pos_scan_kernel_1.prepared_call(
-                        grid,
-                        block,
-                        self.mark_table.ptr,
-                        self.pos_mark_table.ptr,
-                        self.sorted_indices_gpu.ptr + f_idx * indices_stride + indices_offset, 
-                        n_active_threads,
-                        range_size,
-                        n_samples)
-      
-      self.pos_scan_kernel_2.prepared_call(
-                        (1, 1),
-                        (1, 1, 1),
-                        self.pos_mark_table.ptr,
-                        n_active_threads,
-                        self.COMPT_THREADS_PER_BLOCK,
-                        num_blocks,
-                        n_samples)
-
-      self.pos_scan_kernel_3.prepared_call(
-                        grid,
-                        block,
-                        self.mark_table.ptr,
-                        self.pos_mark_table.ptr,
-                        n_active_threads,
-                        range_size,
-                        n_samples)
-      
-      self.shuffle_kernel.prepared_call(
-                        grid,
-                        block,
-                        self.mark_table.ptr,
-                        self.sorted_labels_gpu.ptr + f_idx * labels_stride + labels_offset,
-                        self.sorted_indices_gpu.ptr + f_idx * indices_stride + indices_offset,
-                        self.sorted_samples_gpu.ptr + f_idx * samples_stride + samples_offset,
-                        self.sorted_labels_gpu_.ptr,
-                        self.sorted_indices_gpu_.ptr,
-                        self.sorted_samples_gpu_.ptr,
-                        self.pos_mark_table.ptr,
-                        n_active_threads,
-                        range_size,
-                        n_samples,
-                        min_col_idx)
-      
-      cuda.memcpy_dtod(self.sorted_samples_gpu.ptr + f_idx * samples_stride + int(samples_offset), self.sorted_samples_gpu_.ptr, int(n_samples * self.dtype_samples.itemsize))  
-      cuda.memcpy_dtod(self.sorted_labels_gpu.ptr + f_idx * labels_stride + int(labels_offset), self.sorted_labels_gpu_.ptr, int(n_samples * self.dtype_labels.itemsize))  
-      cuda.memcpy_dtod(self.sorted_indices_gpu.ptr + f_idx * indices_stride + int(indices_offset), self.sorted_indices_gpu_.ptr, int(n_samples * self.dtype_indices.itemsize))  
     
+    #print "Depth: %s,  samples: %s  n_blocks: %s" % (depth, n_samples, num_blocks)
+    
+    with timer("loop2"):
+      for f_idx in xrange(self.n_features): 
+        self.pos_scan_kernel_1.prepared_call(
+                          grid,
+                          block,
+                          self.mark_table.ptr,
+                          self.pos_mark_table.ptr,
+                          self.sorted_indices_gpu.ptr + f_idx * self.indices_stride + indices_offset, 
+                          n_active_threads,
+                          range_size,
+                          n_samples)
+        self.pos_scan_kernel_2.prepared_call(
+                          (1, 1),
+                          (1, 1, 1),
+                          self.pos_mark_table.ptr,
+                          n_active_threads,
+                          self.COMPT_THREADS_PER_BLOCK,
+                          num_blocks,
+                          n_samples)
+        self.pos_scan_kernel_3.prepared_call(
+                          grid,
+                          block,
+                          self.mark_table.ptr,
+                          self.pos_mark_table.ptr,
+                          n_active_threads,
+                          range_size,
+                          n_samples)
+        
+        self.shuffle_kernel.prepared_call(
+                          grid,
+                          block,
+                          self.mark_table.ptr,
+                          self.sorted_labels_gpu.ptr + f_idx * self.labels_stride + labels_offset,
+                          self.sorted_indices_gpu.ptr + f_idx * self.indices_stride + indices_offset,
+                          self.sorted_samples_gpu.ptr + f_idx * self.samples_stride + samples_offset,
+                          self.sorted_labels_gpu_.ptr,
+                          self.sorted_indices_gpu_.ptr,
+                          self.sorted_samples_gpu_.ptr,
+                          self.pos_mark_table.ptr,
+                          n_active_threads,
+                          range_size,
+                          n_samples,
+                          min_col_idx)
+        
+        """
+        cuda.memcpy_dtod(self.sorted_samples_gpu.ptr + f_idx * self.samples_stride + int(samples_offset), 
+            self.sorted_samples_gpu_.ptr, int(n_samples * self.dtype_samples.itemsize))  
+        cuda.memcpy_dtod(self.sorted_labels_gpu.ptr + f_idx * self.labels_stride + int(labels_offset), 
+            self.sorted_labels_gpu_.ptr, int(n_samples * self.dtype_labels.itemsize))  
+        cuda.memcpy_dtod(self.sorted_indices_gpu.ptr + f_idx * self.indices_stride + int(indices_offset), 
+            self.sorted_indices_gpu_.ptr, int(n_samples * self.dtype_indices.itemsize))  
+        """
+    return
     ret_node.left_child = self.__construct(depth + 1, min_imp_left, start_idx, start_idx + min_col_idx + 1)
     ret_node.right_child = self.__construct(depth + 1, min_imp_right, start_idx + min_col_idx + 1, stop_idx)
     return ret_node 
+
 
   def __predict(self, val):
     temp = self.root
@@ -443,10 +454,10 @@ class DecisionTreeMedium(object):
 
 if __name__ == "__main__": 
   import cPickle
-  with open('data_batch_1', 'r') as f:
+  with open('train', 'r') as f:
     train = cPickle.load(f)
     x_train = train['data']
-    y_train = np.array(train['labels'])
+    y_train = np.array(train['fine_labels'])
   
   """
   ds = sklearn.datasets.load_digits()
@@ -455,23 +466,35 @@ if __name__ == "__main__":
   import cProfile 
   max_depth = 6
   """
+
   """
   data = cPickle.load(open("/scratch1/imagenet-pickle/train-data.pickle.0"))
   x_train = data['fc']
   print x_train.shape
   y_train = data['labels'].reshape(122111)
   """
+  
+  """
+  with timer("SK RandForest:"):
+    clf = RandomForestClassifier(n_estimators = 1)
+    clf.max_features = 12
+    clf.min_samples_split = 1
+    clf.bootstrap = False
+
+    clf = clf.fit(x_train, y_train)
+  """
+
 
   """
   with timer("Scikit-learn"):
-    clf = tree.DecisionTreeMediumClassifier()    
-    clf.max_depth = max_depth 
+    clf = tree.DecisionTreeClassifier()    
     clf = clf.fit(x_train, y_train) 
   """
+
   with timer("Cuda"):
     d = DecisionTreeMedium()  
     #dataset = sklearn.datasets.load_digits()
     #num_labels = len(dataset.target_names)  
     #cProfile.run("d.fit(x_train, y_train, DecisionTreeMedium.SCAN_KERNEL_P, DecisionTreeMedium.COMPUTE_KERNEL_CP)") 
-    d.fit(x_train, y_train, max_depth = 4)
-    d.print_tree()
+    d.fit(x_train, y_train, max_depth = None)
+    #d.print_tree()
