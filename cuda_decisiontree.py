@@ -244,7 +244,7 @@ class DecisionTree(object):
       block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
     else:
       block = (1, 1, 1)
-   
+    
     self.scan_kernel.prepared_call(
                 grid,
                 (self.SCAN_THREADS_PER_BLOCK, 1, 1),
@@ -268,22 +268,10 @@ class DecisionTree(object):
               self.n_features, 
               n_samples, 
               self.stride)
-          
+            
 
-    def get_left():
-      return self.impurity_left.get()
-    
-    def get_right():
-       return self.impurity_right.get()
-    
-    def get_min_split():
-      return self.min_split.get()
-
-    #get_min_split()
-    #get_right()
-    #get_left()
-    imp_right = get_right() #self.impurity_right.get()
-    imp_left = get_left() #self.impurity_left.get()
+    imp_right = self.impurity_right.get()
+    imp_left = self.impurity_left.get()
      
 
     imp_total = imp_left + imp_right
@@ -294,7 +282,7 @@ class DecisionTree(object):
       return ret_node
 
     row = ret_node.feature_index
-    col = get_min_split()[row]
+    col = self.min_split.get()[row]
     
     #ret_node.feature_threshold = (sorted_samples[row][col] + sorted_samples[row][col + 1]) / 2.0 
     self.fill_kernel.prepared_call(
@@ -307,7 +295,6 @@ class DecisionTree(object):
                       self.stride
                       )
     
-
     self.shuffle_kernel.prepared_call(
                       (self.n_features, 1),
                       (1, 1, 1),
@@ -356,7 +343,7 @@ class DecisionTree(object):
 
 if __name__ == "__main__":
   
-  x_train, y_train = datasource.load_data("digits") 
+  x_train, y_train = datasource.load_data("db") 
 
   """
   data = cPickle.load(open("/scratch1/imagenet-pickle/train-data.pickle.0"))
@@ -377,4 +364,4 @@ if __name__ == "__main__":
     #num_labels = len(dataset.target_names)  
     #cProfile.run("d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_CP)")
     d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_PART, DecisionTree.COMPUTE_KERNEL_PART)
-    d.print_tree()
+    #d.print_tree()

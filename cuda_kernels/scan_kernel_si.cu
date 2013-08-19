@@ -25,24 +25,25 @@ __global__ void prefix_scan(LABEL_DATA_TYPE *labels,
   
   //Initialize the first label_count of each thread
   for(int i = 0; i < MAX_NUM_LABELS; ++i)
-    label_count[label_offset + i + threadIdx.x * MAX_NUM_LABELS] = 0;
+    label_count[label_offset + i + (threadIdx.x + 1) * MAX_NUM_LABELS] = 0;
 
-  if(threadIdx.x == blockDim.x - 1)
+  if(threadIdx.x == 0)
     for(int i = 0; i < MAX_NUM_LABELS; ++i)
-      label_count[label_offset + i + blockDim.x * MAX_NUM_LABELS] = 0;
+      label_count[label_offset + i] = 0;
+  
 
   if(threadIdx.x < n_active_threads){  
     LABEL_DATA_TYPE cur_label = labels[sorted_indices[indices_offset + range_begin]];
     label_count[label_offset + cur_label + (threadIdx.x + 1) * MAX_NUM_LABELS]++;    
   }
-
+    
+  __syncthreads();
   //Work out a range of label_count of each thread
   for(int i = range_begin + 1; i < range_end; ++i){
     LABEL_DATA_TYPE cur_label = labels[sorted_indices[indices_offset + i]];
     label_count[label_offset + cur_label + (threadIdx.x + 1) * MAX_NUM_LABELS]++; 
   }
   
-  __syncthreads();
   
   //Fist thread of the block does prefix sum on last element of label_count each thread
   if(threadIdx.x == 0)

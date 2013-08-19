@@ -68,6 +68,7 @@ __global__ void compute(SAMPLE_DATA_TYPE *samples,
     if(samples[samples_offset + sorted_indices[indices_offset]] == samples[samples_offset + sorted_indices[indices_offset + n_samples - 1]]){
       imp_left[blockIdx.x] = 2;
       imp_right[blockIdx.x] = 2; 
+      split[blockIdx.x] = 0;
       quit = 1;
     }
     else
