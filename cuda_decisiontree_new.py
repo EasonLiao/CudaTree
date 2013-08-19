@@ -94,7 +94,6 @@ def mk_scan_reshuffle_kernel(dtype_indices, n_threads, kernel_file="pos_scan_res
     fn = mod.get_function("scan_reshuffle")
     return fn
 
-
 class Node(object):
   def __init__(self):
     self.value = None 
@@ -105,7 +104,6 @@ class Node(object):
     self.left_child = None
     self.right_child = None
     self.height = None
-
 
 class DecisionTree(object): 
   COMPT_THREADS_PER_BLOCK = 32  #The number of threads do computation per block.
@@ -157,8 +155,9 @@ class DecisionTree(object):
     self.scan_kernel = mk_scan_kernel(self.num_labels, self.COMPT_THREADS_PER_BLOCK, self.dtype_labels, self.dtype_counts, self.dtype_indices)
     self.fill_kernel = mk_fill_table_kernel(dtype_indices = self.dtype_indices)
      
+    #self.scan_reshuffle_kernel = mk_scan_reshuffle_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK, "pos_scan_reshuffle_reg.cu")
     self.scan_reshuffle_kernel = mk_scan_reshuffle_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK)
-
+    
     #self.pos_scan_kernel = mk_pos_scan_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK)
     #self.shuffle_kernel = mk_shuffle_kernel(self.dtype_indices)
     
@@ -181,12 +180,13 @@ class DecisionTree(object):
     self.mark_table = gpuarray.empty(target.size, dtype = np.uint8)
     sorted_indices = np.empty((n_features, target.size), dtype = self.dtype_indices)
 
-    self.pos_mark_table = gpuarray.empty(self.RESHUFFLE_THREADS_PER_BLOCK * self.n_features, dtype = self.dtype_indices)
+    #self.pos_mark_table = gpuarray.empty(self.RESHUFFLE_THREADS_PER_BLOCK * self.n_features, dtype = self.dtype_indices)
     self.label_count = gpuarray.empty((self.COMPT_THREADS_PER_BLOCK + 1) * self.num_labels * self.n_features, dtype = self.dtype_counts)  
-    
-    for i,f in enumerate(samples):
-      sort_idx = np.argsort(f)
-      sorted_indices[i] = sort_idx  
+   
+    with timer("argsort"):
+      for i,f in enumerate(samples):
+        sort_idx = np.argsort(f)
+        sorted_indices[i] = sort_idx  
   
     self.sorted_indices_gpu = gpuarray.to_gpu(sorted_indices)
     self.sorted_indices_gpu_ = self.sorted_indices_gpu.copy()
@@ -195,7 +195,7 @@ class DecisionTree(object):
   
     sorted_indices = None
     assert self.sorted_indices_gpu.strides[0] == target.size * self.sorted_indices_gpu.dtype.itemsize 
-    assert self.samples_gpu.strides[0] == target.size * self.samples_gpu.dtype.itemsize  
+    assert self.samples_gpu.strides[0] == target.size * self.samples_gpu.dtype.itemsize   
     self.root = self.__construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_) 
     
 
@@ -273,6 +273,10 @@ class DecisionTree(object):
                       )
       
     
+    block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
+    range_size = int(math.ceil(float(n_samples) / self.RESHUFFLE_THREADS_PER_BLOCK))
+    n_active_threads = int(math.ceil(float(n_samples) / range_size))
+    
     self.scan_reshuffle_kernel.prepared_call(
                       grid,
                       block,
@@ -285,6 +289,8 @@ class DecisionTree(object):
                       col,
                       self.stride
                       )  
+    
+
     """
     self.pos_scan_kernel.prepared_call(
                       grid,
@@ -346,7 +352,7 @@ class DecisionTree(object):
 
 
 if __name__ == "__main__":
-  x_train, y_train = datasource.load_data("db")
+  x_train, y_train = datasource.load_data("train")
   
   """
   with timer("Scikit-learn"):
@@ -357,4 +363,4 @@ if __name__ == "__main__":
   with timer("Cuda"):
     d = DecisionTree()  
     d.fit(x_train, y_train)
-    d.print_tree()
+    #d.print_tree()
