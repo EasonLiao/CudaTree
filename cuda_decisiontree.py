@@ -51,7 +51,7 @@ def mk_kernel(n_samples, n_labels, dtype_samples, dtype_labels, dtype_counts, ke
     _cache[key] = fn
     return fn
 
-def mk_scan_kernel(n_samples, n_labels, kernel_file, n_threads, dtype_labels, dtype_counts,  _cache = {}):
+def mk_scan_kernel(n_samples, n_labels, n_threads, dtype_labels, dtype_counts, kernel_file, _cache = {}):
   kernel_file = "cuda_kernels/" + kernel_file
   key = (n_samples, n_labels)
   if key in _cache:
@@ -82,6 +82,16 @@ def mk_shuffle_kernel(dtype_samples, dtype_labels, dtype_indices, kernel_file = 
     mod = SourceModule(src)
     fn = mod.get_function("reshuffle")
     return fn
+
+def mk_pos_scan_shuffle_kernel(dtype_indices, dtype_samples, dtype_labels, n_threads, kernel_file = "pos_scan_reshuffle_reg_c.cu"):
+  kernel_file = "cuda_kernels/" + kernel_file
+  with open(kernel_file) as code_file:
+    code = code_file.read()
+    src = code % (dtype_to_ctype(dtype_indices), dtype_to_ctype(dtype_samples), dtype_to_ctype(dtype_labels), n_threads) 
+    mod = SourceModule(src)
+    fn = mod.get_function("scan_reshuffle")
+    return fn
+
 
 class Node(object):
   def __init__(self):
@@ -114,7 +124,7 @@ class DecisionTree(object):
   SCAN_KERNEL_PART = "scan_kernel_p_part.cu"          
 
   COMPT_THREADS_PER_BLOCK = 64  #The number of threads do computation per block.
-  SCAN_THREADS_PER_BLOCK = 64   #The number of threads do prefix scan per block.
+  RESHUFFLE_THREADS_PER_BLOCK = 32
 
   def __init__(self):
     self.root = None
@@ -128,7 +138,7 @@ class DecisionTree(object):
     self.dtype_indices = None
     self.dtype_counts = None
 
-  def fit(self, samples, target, scan_kernel_type, compt_kernel_type, max_depth = None):
+  def fit(self, samples, target, max_depth = None):
     def get_best_dtype(max_value):
       """ Find the best dtype to minimize the memory usage"""
       if max_value <= np.iinfo(np.uint8).max:
@@ -154,26 +164,26 @@ class DecisionTree(object):
     self.dtype_labels = get_best_dtype(self.num_labels)
     self.dtype_samples = samples.dtype
       
-
-    self.compt_kernel_type = compt_kernel_type
-
     samples = np.require(np.transpose(samples), requirements = 'C')
     target = np.require(np.transpose(target), dtype = self.dtype_labels, requirements = 'C') 
     
     self.samples_itemsize = self.dtype_samples.itemsize
     self.labels_itemsize = self.dtype_labels.itemsize
     
-    self.kernel = mk_kernel(target.size, self.num_labels, self.dtype_samples, self.dtype_labels, self.dtype_counts, compt_kernel_type)
-    self.scan_kernel = mk_scan_kernel(target.size, self.num_labels, scan_kernel_type, self.SCAN_THREADS_PER_BLOCK, self.dtype_labels, self.dtype_counts)
+    self.kernel = mk_kernel(target.size, self.num_labels, self.dtype_samples, self.dtype_labels, self.dtype_counts, "comput_kernel_pp_part.cu")
+    self.scan_kernel = mk_scan_kernel(target.size, self.num_labels, self.COMPT_THREADS_PER_BLOCK, self.dtype_labels, self.dtype_counts, "scan_kernel_p_part.cu")
     self.fill_kernel = mk_fill_table_kernel(dtype_indices = self.dtype_indices)
-    self.shuffle_kernel = mk_shuffle_kernel(self.dtype_samples, self.dtype_labels, self.dtype_indices)
-    
+    #self.shuffle_kernel = mk_shuffle_kernel(self.dtype_samples, self.dtype_labels, self.dtype_indices)
+    self.shuffle_kernel = mk_pos_scan_shuffle_kernel(self.dtype_indices, self.dtype_samples, self.dtype_labels, self.RESHUFFLE_THREADS_PER_BLOCK)
+
+
     """ Use prepare to improve speed """
     self.kernel.prepare("PPPPPPiii")
     self.scan_kernel.prepare("PPiii") 
     self.fill_kernel.prepare("PiiPi")
+    #self.shuffle_kernel.prepare("PPPPPPPiii")
     self.shuffle_kernel.prepare("PPPPPPPiii")
-
+    
     n_features = samples.shape[0]
     self.n_features = n_features
 
@@ -239,32 +249,27 @@ class DecisionTree(object):
       ret_node.value = 1 #target[0]
       return ret_node
   
-    grid = (self.n_features, 1) 
-    if self.compt_kernel_type !=  self.COMPUTE_KERNEL_SS:
-      block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
-    else:
-      block = (1, 1, 1)
+    block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
     
     self.scan_kernel.prepared_call(
                 grid,
-                (self.SCAN_THREADS_PER_BLOCK, 1, 1),
-                np.intp(gpuarrays_in[1].gpudata) + labels_offset, 
-                self.label_count.gpudata,
+                block,
+                gpuarrays_in[1].ptr + labels_offset, 
+                self.label_count.ptr,
                 self.n_features, 
                 n_samples, 
                 self.stride) 
 
 
-
     self.kernel.prepared_call(
               grid,
               block,
-              np.intp(gpuarrays_in[2].gpudata) + samples_offset,
-              np.intp(gpuarrays_in[1].gpudata) + labels_offset,
-              self.impurity_left.gpudata,
-              self.impurity_right.gpudata,
-              self.label_count.gpudata,
-              self.min_split.gpudata,
+              gpuarrays_in[2].ptr + samples_offset,
+              gpuarrays_in[1].ptr + labels_offset,
+              self.impurity_left.ptr,
+              self.impurity_right.ptr,
+              self.label_count.ptr,
+              self.min_split.ptr,
               self.n_features, 
               n_samples, 
               self.stride)
@@ -272,8 +277,6 @@ class DecisionTree(object):
 
     imp_right = self.impurity_right.get()
     imp_left = self.impurity_left.get()
-     
-
     imp_total = imp_left + imp_right
     
     ret_node.feature_index =  imp_total.argmin()
@@ -283,28 +286,29 @@ class DecisionTree(object):
 
     row = ret_node.feature_index
     col = self.min_split.get()[row]
-    
-    #ret_node.feature_threshold = (sorted_samples[row][col] + sorted_samples[row][col + 1]) / 2.0 
+   
+    block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
+
     self.fill_kernel.prepared_call(
                       (1, 1),
                       (1024, 1, 1),
-                      np.intp(gpuarrays_in[0].gpudata) + row * self.stride * self.dtype_indices.itemsize + indices_offset, 
+                      gpuarrays_in[0].ptr + row * self.stride * self.dtype_indices.itemsize + indices_offset, 
                       n_samples, 
                       col, 
-                      self.mark_table.gpudata, 
+                      self.mark_table.ptr, 
                       self.stride
                       )
-    
+     
     self.shuffle_kernel.prepared_call(
                       (self.n_features, 1),
-                      (1, 1, 1),
-                      self.mark_table.gpudata,
-                      np.intp(gpuarrays_in[1].gpudata) + labels_offset,
-                      np.intp(gpuarrays_in[0].gpudata) + indices_offset,
-                      np.intp(gpuarrays_in[2].gpudata) + samples_offset,
-                      np.intp(gpuarrays_out[1].gpudata) + labels_offset,
-                      np.intp(gpuarrays_out[0].gpudata) + indices_offset,
-                      np.intp(gpuarrays_out[2].gpudata) + samples_offset,
+                      block,
+                      self.mark_table.ptr,
+                      gpuarrays_in[0].ptr + indices_offset,
+                      gpuarrays_in[2].ptr + samples_offset,
+                      gpuarrays_in[1].ptr + labels_offset,
+                      gpuarrays_out[0].ptr + indices_offset,
+                      gpuarrays_out[2].ptr + samples_offset,
+                      gpuarrays_out[1].ptr + labels_offset,
                       n_samples,
                       col,
                       self.stride)
@@ -341,16 +345,8 @@ class DecisionTree(object):
     assert self.root is not None
     recursive_print(self.root)
 
-if __name__ == "__main__":
-  
+if __name__ == "__main__": 
   x_train, y_train = datasource.load_data("db") 
-
-  """
-  data = cPickle.load(open("/scratch1/imagenet-pickle/train-data.pickle.0"))
-  x_train = data['fc']
-  print x_train.shape
-  y_train = data['labels'].reshape(122111)
-  """
 
   """
   with timer("Scikit-learn"):
@@ -363,5 +359,5 @@ if __name__ == "__main__":
     #dataset = sklearn.datasets.load_digits()
     #num_labels = len(dataset.target_names)  
     #cProfile.run("d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_CP)")
-    d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_PART, DecisionTree.COMPUTE_KERNEL_PART)
-    #d.print_tree()
+    d.fit(x_train, y_train)
+    d.print_tree()

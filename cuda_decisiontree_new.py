@@ -107,7 +107,7 @@ class Node(object):
 
 class DecisionTree(object): 
   COMPT_THREADS_PER_BLOCK = 32  #The number of threads do computation per block.
-  RESHUFFLE_THREADS_PER_BLOCK = 32
+  RESHUFFLE_THREADS_PER_BLOCK = 256
 
   def __init__(self):
     self.root = None
@@ -155,8 +155,8 @@ class DecisionTree(object):
     self.scan_kernel = mk_scan_kernel(self.num_labels, self.COMPT_THREADS_PER_BLOCK, self.dtype_labels, self.dtype_counts, self.dtype_indices)
     self.fill_kernel = mk_fill_table_kernel(dtype_indices = self.dtype_indices)
      
-    #self.scan_reshuffle_kernel = mk_scan_reshuffle_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK, "pos_scan_reshuffle_reg.cu")
-    self.scan_reshuffle_kernel = mk_scan_reshuffle_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK)
+    self.scan_reshuffle_kernel = mk_scan_reshuffle_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK, "pos_scan_reshuffle_si_reg_c.cu")
+    #self.scan_reshuffle_kernel = mk_scan_reshuffle_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK)
     
     #self.pos_scan_kernel = mk_pos_scan_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK)
     #self.shuffle_kernel = mk_shuffle_kernel(self.dtype_indices)
@@ -223,6 +223,7 @@ class DecisionTree(object):
     range_size = int(math.ceil(float(n_samples) / self.COMPT_THREADS_PER_BLOCK))
     n_active_threads = int(math.ceil(float(n_samples) / range_size))
     
+
     self.scan_kernel.prepared_call(
                 grid,
                 block,
@@ -253,6 +254,7 @@ class DecisionTree(object):
     
     imp_right = self.impurity_right.get()
     imp_left = self.impurity_left.get()
+    
     imp_total = imp_left + imp_right 
     ret_node.feature_index =  imp_total.argmin()
 
@@ -276,7 +278,8 @@ class DecisionTree(object):
     block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
     range_size = int(math.ceil(float(n_samples) / self.RESHUFFLE_THREADS_PER_BLOCK))
     n_active_threads = int(math.ceil(float(n_samples) / range_size))
-    
+
+
     self.scan_reshuffle_kernel.prepared_call(
                       grid,
                       block,
@@ -290,6 +293,8 @@ class DecisionTree(object):
                       self.stride
                       )  
     
+    print si_gpu_out
+    return
 
     """
     self.pos_scan_kernel.prepared_call(
@@ -318,6 +323,7 @@ class DecisionTree(object):
                       self.stride
                       )  
     """
+     
     ret_node.left_child = self.__construct(depth + 1, imp_left[ret_node.feature_index], start_idx, start_idx + col + 1, si_gpu_out, si_gpu_in)
     ret_node.right_child = self.__construct(depth + 1, imp_right[ret_node.feature_index], start_idx + col + 1, stop_idx, si_gpu_out, si_gpu_in)
     return ret_node 
@@ -352,7 +358,7 @@ class DecisionTree(object):
 
 
 if __name__ == "__main__":
-  x_train, y_train = datasource.load_data("train")
+  x_train, y_train = datasource.load_data("db")
   
   """
   with timer("Scikit-learn"):
