@@ -23,11 +23,11 @@ __global__ void prefix_scan(LABEL_DATA_TYPE *sorted_targets,
 
   //Initialize the first label_count of each thread
   for(int i = 0; i < MAX_NUM_LABELS; ++i)
-    label_count[label_offset + i + threadIdx.x * MAX_NUM_LABELS] = 0;
+    label_count[label_offset + i + (threadIdx.x + 1) * MAX_NUM_LABELS] = 0;
 
-  if(threadIdx.x == blockDim.x - 1)
+  if(threadIdx.x == 0)
     for(int i = 0; i < MAX_NUM_LABELS; ++i)
-      label_count[label_offset + i + blockDim.x * MAX_NUM_LABELS] = 0;
+      label_count[label_offset + i] = 0;
 
   if(threadIdx.x < n_active_threads){  
     LABEL_DATA_TYPE cur_label = sorted_targets[targets_offset + range_begin];

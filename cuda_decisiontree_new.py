@@ -155,7 +155,7 @@ class DecisionTree(object):
     self.scan_kernel = mk_scan_kernel(self.num_labels, self.COMPT_THREADS_PER_BLOCK, self.dtype_labels, self.dtype_counts, self.dtype_indices)
     self.fill_kernel = mk_fill_table_kernel(dtype_indices = self.dtype_indices)
      
-    self.scan_reshuffle_kernel = mk_scan_reshuffle_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK, "pos_scan_reshuffle_si_reg_c.cu")
+    #self.scan_reshuffle_kernel = mk_scan_reshuffle_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK, "pos_scan_reshuffle_si_reg_c.cu")
     #self.scan_reshuffle_kernel = mk_scan_reshuffle_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK)
     
     #self.pos_scan_kernel = mk_pos_scan_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK)
@@ -168,7 +168,7 @@ class DecisionTree(object):
     #self.shuffle_kernel.prepare("PPPiii")
     #self.shuffle_kernel.prepare("PPPPiiiii")
     #self.pos_scan_kernel.prepare("PPPiiii")    
-    self.scan_reshuffle_kernel.prepare("PPPiiiii")
+    #self.scan_reshuffle_kernel.prepare("PPPiiiii")
 
     n_features = samples.shape[0]
     self.n_features = n_features
@@ -223,7 +223,6 @@ class DecisionTree(object):
     range_size = int(math.ceil(float(n_samples) / self.COMPT_THREADS_PER_BLOCK))
     n_active_threads = int(math.ceil(float(n_samples) / range_size))
     
-
     self.scan_kernel.prepared_call(
                 grid,
                 block,
@@ -251,12 +250,14 @@ class DecisionTree(object):
               self.n_features, 
               n_samples, 
               self.stride)
-    
+
     imp_right = self.impurity_right.get()
-    imp_left = self.impurity_left.get()
-    
+    imp_left = self.impurity_left.get() 
     imp_total = imp_left + imp_right 
     ret_node.feature_index =  imp_total.argmin()
+    
+    print self.min_split[0:100]
+    return
 
     if imp_total[ret_node.feature_index] == 4:
       return ret_node
@@ -264,6 +265,7 @@ class DecisionTree(object):
     row = ret_node.feature_index
     col = self.min_split.get()[row]
     
+
     self.fill_kernel.prepared_call(
                       (1, 1),
                       (1024, 1, 1),
@@ -293,9 +295,6 @@ class DecisionTree(object):
                       self.stride
                       )  
     
-    print si_gpu_out
-    return
-
     """
     self.pos_scan_kernel.prepared_call(
                       grid,
@@ -358,7 +357,7 @@ class DecisionTree(object):
 
 
 if __name__ == "__main__":
-  x_train, y_train = datasource.load_data("db")
+  x_train, y_train = datasource.load_data("digits")
   
   """
   with timer("Scikit-learn"):
