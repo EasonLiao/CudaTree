@@ -107,7 +107,7 @@ class Node(object):
 
 class DecisionTree(object): 
   COMPT_THREADS_PER_BLOCK = 32  #The number of threads do computation per block.
-  RESHUFFLE_THREADS_PER_BLOCK = 256
+  RESHUFFLE_THREADS_PER_BLOCK = 32 
 
   def __init__(self):
     self.root = None
@@ -155,7 +155,7 @@ class DecisionTree(object):
     self.scan_kernel = mk_scan_kernel(self.num_labels, self.COMPT_THREADS_PER_BLOCK, self.dtype_labels, self.dtype_counts, self.dtype_indices)
     self.fill_kernel = mk_fill_table_kernel(dtype_indices = self.dtype_indices)
      
-    #self.scan_reshuffle_kernel = mk_scan_reshuffle_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK, "pos_scan_reshuffle_si_reg_c.cu")
+    self.scan_reshuffle_kernel = mk_scan_reshuffle_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK, "pos_scan_reshuffle_si_c.cu")
     #self.scan_reshuffle_kernel = mk_scan_reshuffle_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK)
     
     #self.pos_scan_kernel = mk_pos_scan_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK)
@@ -168,7 +168,7 @@ class DecisionTree(object):
     #self.shuffle_kernel.prepare("PPPiii")
     #self.shuffle_kernel.prepare("PPPPiiiii")
     #self.pos_scan_kernel.prepare("PPPiiii")    
-    #self.scan_reshuffle_kernel.prepare("PPPiiiii")
+    self.scan_reshuffle_kernel.prepare("PPPiiiii")
 
     n_features = samples.shape[0]
     self.n_features = n_features
@@ -256,8 +256,6 @@ class DecisionTree(object):
     imp_total = imp_left + imp_right 
     ret_node.feature_index =  imp_total.argmin()
     
-    print self.min_split[0:100]
-    return
 
     if imp_total[ret_node.feature_index] == 4:
       return ret_node
@@ -280,7 +278,6 @@ class DecisionTree(object):
     block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
     range_size = int(math.ceil(float(n_samples) / self.RESHUFFLE_THREADS_PER_BLOCK))
     n_active_threads = int(math.ceil(float(n_samples) / range_size))
-
 
     self.scan_reshuffle_kernel.prepared_call(
                       grid,
@@ -357,7 +354,7 @@ class DecisionTree(object):
 
 
 if __name__ == "__main__":
-  x_train, y_train = datasource.load_data("digits")
+  x_train, y_train = datasource.load_data("train")
   
   """
   with timer("Scikit-learn"):
@@ -368,4 +365,4 @@ if __name__ == "__main__":
   with timer("Cuda"):
     d = DecisionTree()  
     d.fit(x_train, y_train)
-    #d.print_tree()
+    d.print_tree()

@@ -2,8 +2,7 @@
 #include<stdio.h>
 #include<math.h>
 #include<stdint.h>
-#define MAX_THREADS_PER_BLOCK 256 
-#define MAX_NUM_SAMPLES %d
+#define THREADS_PER_BLOCK %s
 #define MAX_NUM_LABELS %d
 #define SAMPLE_DATA_TYPE %s
 #define LABEL_DATA_TYPE %s
@@ -47,9 +46,9 @@ __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples,
   int labels_offset = blockIdx.x * stride;
   
   __shared__ int quit;
-  __shared__ float shared_imp_left[MAX_THREADS_PER_BLOCK];
-  __shared__ float shared_imp_right[MAX_THREADS_PER_BLOCK];
-  __shared__ COUNT_DATA_TYPE shared_split_index[MAX_THREADS_PER_BLOCK];
+  __shared__ float shared_imp_left[THREADS_PER_BLOCK];
+  __shared__ float shared_imp_right[THREADS_PER_BLOCK];
+  __shared__ COUNT_DATA_TYPE shared_split_index[THREADS_PER_BLOCK];
 
   int range = ceil(double(n_samples) / blockDim.x);
   int n_active_threads = ceil(double(n_samples) / range);     //The number of threads that have the actual work to do.
