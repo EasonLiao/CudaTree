@@ -151,6 +151,9 @@ class DecisionTree(object):
     
     self.samples_itemsize = self.dtype_samples.itemsize
     self.labels_itemsize = self.dtype_labels.itemsize
+    self.target_value_idx = np.zeros(1, self.dtype_indices)
+    self.threshold_value_idx = np.zeros(2, self.dtype_indices)
+    
     self.kernel = mk_kernel(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_samples, self.dtype_labels, self.dtype_counts, self.dtype_indices)
     self.scan_kernel = mk_scan_kernel(self.num_labels, self.COMPT_THREADS_PER_BLOCK, self.dtype_labels, self.dtype_counts, self.dtype_indices)
     self.fill_kernel = mk_fill_table_kernel(dtype_indices = self.dtype_indices)
@@ -197,7 +200,23 @@ class DecisionTree(object):
     assert self.sorted_indices_gpu.strides[0] == target.size * self.sorted_indices_gpu.dtype.itemsize 
     assert self.samples_gpu.strides[0] == target.size * self.samples_gpu.dtype.itemsize   
     self.root = self.__construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_) 
-    
+    self.decorate_nodes(samples, target) 
+
+  def decorate_nodes(self, samples, labels):
+    """ In __construct function, the node just store the indices of the actual data, now decorate it with the actual data."""
+    def recursive_decorate(node):
+      if node.left_child and node.right_child:
+        idx_tuple = node.feature_threshold
+        node.feature_threshold = (float(samples[idx_tuple[0], idx_tuple[1]]) + samples[idx_tuple[0], idx_tuple[2]]) / 2
+        recursive_decorate(node.left_child)
+        recursive_decorate(node.right_child)
+      else:
+        idx = node.value
+        node.value = labels[idx]
+        
+    assert self.root != None
+    recursive_decorate(self.root)
+
 
   def __construct(self, depth, error_rate, start_idx, stop_idx, si_gpu_in, si_gpu_out):
     def check_terminate():
@@ -215,7 +234,8 @@ class DecisionTree(object):
     ret_node.height = depth 
 
     if check_terminate():
-      ret_node.value = 1 #target[0]
+      cuda.memcpy_dtoh(self.target_value_idx, si_gpu_in.ptr + int(start_idx * self.dtype_indices.itemsize))
+      ret_node.value = self.target_value_idx[0] 
       return ret_node
   
     grid = (self.n_features, 1) 
@@ -263,6 +283,11 @@ class DecisionTree(object):
     row = ret_node.feature_index
     col = self.min_split.get()[row]
     
+    cuda.memcpy_dtoh(self.threshold_value_idx, si_gpu_in.ptr + int(indices_offset) + int(row * self.stride + col) * int(self.dtype_indices.itemsize))
+    ret_node.feature_threshold = (row, self.threshold_value_idx[0], self.threshold_value_idx[1])
+    
+    #sr = self.samples_gpu.get()
+    #print (sr[row][self.threshold_value_idx[0]] + sr[row][self.threshold_value_idx[1]]) / 2 
 
     self.fill_kernel.prepared_call(
                       (1, 1),
@@ -354,8 +379,7 @@ class DecisionTree(object):
 
 
 if __name__ == "__main__":
-  x_train, y_train = datasource.load_data("train")
-  
+  x_train, y_train = datasource.load_data("db") 
   """
   with timer("Scikit-learn"):
     clf = tree.DecisionTreeClassifier()    
@@ -365,4 +389,5 @@ if __name__ == "__main__":
   with timer("Cuda"):
     d = DecisionTree()  
     d.fit(x_train, y_train)
-    d.print_tree()
+    #d.print_tree()
+    print np.allclose(d.predict(x_train), y_train)

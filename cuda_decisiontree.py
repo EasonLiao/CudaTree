@@ -216,8 +216,6 @@ class DecisionTree(object):
     sorted_labels = np.empty((n_features, target.size), dtype = self.dtype_labels)
     sorted_samples = np.empty((n_features, target.size), dtype = self.dtype_samples)
     
-
-    #self.label_count = gpuarray.empty(2, dtype = self.dtype_counts)  
     self.label_count = gpuarray.empty((self.COMPT_THREADS_PER_BLOCK + 1) * self.num_labels * samples.shape[0], dtype = self.dtype_counts)  
     self.label_total = gpuarray.empty(self.num_labels, dtype = self.dtype_counts)
     
@@ -235,8 +233,7 @@ class DecisionTree(object):
     self.sorted_samples_gpu_ = self.sorted_samples_gpu.copy() 
     self.sorted_indices_gpu_ = self.sorted_indices_gpu.copy()
     self.sorted_labels_gpu_ = self.sorted_labels_gpu.copy() 
-     
-    
+      
     sorted_samples = None
     sorted_indices = None
     sorted_labels = None
@@ -373,7 +370,6 @@ class DecisionTree(object):
                       n_samples,
                       col,
                       self.stride)
-
     ret_node.left_child = self.__construct(depth + 1, imp_left[ret_node.feature_index], start_idx, start_idx + col + 1, gpuarrays_out, gpuarrays_in)
     ret_node.right_child = self.__construct(depth + 1, imp_right[ret_node.feature_index], start_idx + col + 1, stop_idx, gpuarrays_out, gpuarrays_in)
     return ret_node 
@@ -408,13 +404,13 @@ class DecisionTree(object):
 
 if __name__ == "__main__": 
   x_train, y_train = datasource.load_data("db") 
-
   """
   with timer("Scikit-learn"):
     clf = tree.DecisionTreeClassifier()    
     clf.max_depth = max_depth 
     clf = clf.fit(x_train, y_train) 
   """
+
   with timer("Cuda"):
     d = DecisionTree()  
     #dataset = sklearn.datasets.load_digits()
