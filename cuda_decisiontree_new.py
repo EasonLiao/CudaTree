@@ -94,6 +94,35 @@ def mk_scan_reshuffle_kernel(dtype_indices, n_threads, kernel_file="pos_scan_res
     fn = mod.get_function("scan_reshuffle")
     return fn
 
+def mk_scan_total_kernel(n_threads, n_labels, dtype_labels, dtype_counts, dtype_indices, kernel_file = "scan_kernel_total_si.cu"):
+  kernel_file = "cuda_kernels/" + kernel_file
+  with open(kernel_file) as code_file:
+    code = code_file.read()
+    src = code % (n_threads, n_labels, dtype_to_ctype(dtype_labels), dtype_to_ctype(dtype_counts), dtype_to_ctype(dtype_indices)) 
+    mod = SourceModule(src)
+    fn = mod.get_function("count_total")
+    return fn
+
+def mk_compute_total_kernel(n_threads, n_labels, dtype_samples, dtype_labels, dtype_counts, dtype_indices, kernel_file = "comput_kernel_total_si.cu"):
+  kernel_file = "cuda_kernels/" + kernel_file
+  with open(kernel_file) as code_file:
+    code = code_file.read()
+    src = code % (n_threads, n_labels, dtype_to_ctype(dtype_samples), dtype_to_ctype(dtype_labels), dtype_to_ctype(dtype_counts), dtype_to_ctype(dtype_indices)) 
+    mod = SourceModule(src)
+    fn = mod.get_function("compute")
+    return fn
+
+def mk_scan_reshuffle_tex_kernel(dtype_indices, n_threads, kernel_file="pos_scan_reshuffle_si_c_tex.cu"):
+  kernel_file = "cuda_kernels/" + kernel_file
+  with open(kernel_file) as code_file:
+    code = code_file.read()
+    src = code % (dtype_to_ctype(dtype_indices), n_threads) 
+    mod = SourceModule(src)
+    fn = mod.get_function("scan_reshuffle")
+    tex = mod.get_texref("tex_mark")
+    return fn, tex
+
+
 class Node(object):
   def __init__(self):
     self.value = None 
@@ -156,14 +185,14 @@ class DecisionTree(object):
     
     self.kernel = mk_kernel(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_samples, self.dtype_labels, self.dtype_counts, self.dtype_indices)
     self.scan_kernel = mk_scan_kernel(self.num_labels, self.COMPT_THREADS_PER_BLOCK, self.dtype_labels, self.dtype_counts, self.dtype_indices)
-    self.fill_kernel = mk_fill_table_kernel(dtype_indices = self.dtype_indices)
-     
+    self.fill_kernel = mk_fill_table_kernel(dtype_indices = self.dtype_indices) 
     self.scan_reshuffle_kernel = mk_scan_reshuffle_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK, "pos_scan_reshuffle_si_c.cu")
-    #self.scan_reshuffle_kernel = mk_scan_reshuffle_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK)
+    self.scan_total_kernel = mk_scan_total_kernel(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_labels, self.dtype_counts, self.dtype_indices)
+    self.comput_total_kernel =  mk_compute_total_kernel(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_samples, self.dtype_labels, self.dtype_counts, self.dtype_indices)  
     
-    #self.pos_scan_kernel = mk_pos_scan_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK)
-    #self.shuffle_kernel = mk_shuffle_kernel(self.dtype_indices)
-    
+    self.scan_reshuffle_tex, tex_ref = mk_scan_reshuffle_tex_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK)
+
+
     """ Use prepare to improve speed """
     self.kernel.prepare("PPPPPPPiiiii")
     self.scan_kernel.prepare("PPPiiiii") 
@@ -172,6 +201,11 @@ class DecisionTree(object):
     #self.shuffle_kernel.prepare("PPPPiiiii")
     #self.pos_scan_kernel.prepare("PPPiiii")    
     self.scan_reshuffle_kernel.prepare("PPPiiiii")
+    self.scan_reshuffle_tex.prepare("PPPiiiii")
+    
+    self.scan_total_kernel.prepare("PPPi")
+    self.comput_total_kernel.prepare("PPPPPPPii")
+
 
     n_features = samples.shape[0]
     self.n_features = n_features
@@ -185,7 +219,10 @@ class DecisionTree(object):
 
     #self.pos_mark_table = gpuarray.empty(self.RESHUFFLE_THREADS_PER_BLOCK * self.n_features, dtype = self.dtype_indices)
     self.label_count = gpuarray.empty((self.COMPT_THREADS_PER_BLOCK + 1) * self.num_labels * self.n_features, dtype = self.dtype_counts)  
-   
+    self.label_total = gpuarray.empty(self.num_labels, self.dtype_indices)
+    
+    self.mark_table.bind_to_texref_ext(tex_ref)
+
     with timer("argsort"):
       for i,f in enumerate(samples):
         sort_idx = np.argsort(f)
@@ -200,7 +237,8 @@ class DecisionTree(object):
     assert self.sorted_indices_gpu.strides[0] == target.size * self.sorted_indices_gpu.dtype.itemsize 
     assert self.samples_gpu.strides[0] == target.size * self.samples_gpu.dtype.itemsize   
     self.root = self.__construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_) 
-    self.decorate_nodes(samples, target) 
+    #self.decorate_nodes(samples, target) 
+
 
   def decorate_nodes(self, samples, labels):
     """ In __construct function, the node just store the indices of the actual data, now decorate it with the actual data."""
@@ -243,6 +281,28 @@ class DecisionTree(object):
     range_size = int(math.ceil(float(n_samples) / self.COMPT_THREADS_PER_BLOCK))
     n_active_threads = int(math.ceil(float(n_samples) / range_size))
     
+    self.scan_total_kernel.prepared_call(
+                (1, 1),
+                block,
+                si_gpu_in.ptr + indices_offset,
+                self.labels_gpu.ptr,
+                self.label_total.ptr,
+                n_samples)
+   
+    self.comput_total_kernel.prepared_call(
+                grid,
+                block,
+                si_gpu_in.ptr + indices_offset,
+                self.samples_gpu.ptr,
+                self.labels_gpu.ptr,
+                self.impurity_left.ptr,
+                self.impurity_right.ptr,
+                self.label_total.ptr,
+                self.min_split.ptr,
+                n_samples,
+                self.stride)
+    
+    """
     self.scan_kernel.prepared_call(
                 grid,
                 block,
@@ -270,6 +330,7 @@ class DecisionTree(object):
               self.n_features, 
               n_samples, 
               self.stride)
+    """
 
     imp_right = self.impurity_right.get()
     imp_left = self.impurity_left.get() 
@@ -277,18 +338,19 @@ class DecisionTree(object):
     ret_node.feature_index =  imp_total.argmin()
     
 
-    if imp_total[ret_node.feature_index] == 4:
-      return ret_node
 
     row = ret_node.feature_index
     col = self.min_split.get()[row]
+    
+    if imp_total[ret_node.feature_index] == 4:
+      print "######## depth : %d, n_samples: %d, row: %d, col: %d, start: %d, stop: %d" % (depth, n_samples, row, col, start_idx, stop_idx)
+      return ret_node
     
     cuda.memcpy_dtoh(self.threshold_value_idx, si_gpu_in.ptr + int(indices_offset) + int(row * self.stride + col) * int(self.dtype_indices.itemsize))
     ret_node.feature_threshold = (row, self.threshold_value_idx[0], self.threshold_value_idx[1])
     
     #sr = self.samples_gpu.get()
     #print (sr[row][self.threshold_value_idx[0]] + sr[row][self.threshold_value_idx[1]]) / 2 
-
     self.fill_kernel.prepared_call(
                       (1, 1),
                       (1024, 1, 1),
@@ -303,8 +365,8 @@ class DecisionTree(object):
     block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
     range_size = int(math.ceil(float(n_samples) / self.RESHUFFLE_THREADS_PER_BLOCK))
     n_active_threads = int(math.ceil(float(n_samples) / range_size))
-
-    self.scan_reshuffle_kernel.prepared_call(
+    
+    self.scan_reshuffle_tex.prepared_call(
                       grid,
                       block,
                       self.mark_table.ptr,
@@ -314,8 +376,8 @@ class DecisionTree(object):
                       n_active_threads,
                       n_samples,
                       col,
-                      self.stride
-                      )  
+                      self.stride) 
+
     
     """
     self.pos_scan_kernel.prepared_call(
@@ -379,15 +441,15 @@ class DecisionTree(object):
 
 
 if __name__ == "__main__":
-  x_train, y_train = datasource.load_data("db") 
+  x_train, y_train = datasource.load_data("train") 
   """
   with timer("Scikit-learn"):
     clf = tree.DecisionTreeClassifier()    
     clf = clf.fit(x_train, y_train) 
   """
-
+  
   with timer("Cuda"):
     d = DecisionTree()  
     d.fit(x_train, y_train)
     #d.print_tree()
-    print np.allclose(d.predict(x_train), y_train)
+    #print np.allclose(d.predict(x_train), y_train)

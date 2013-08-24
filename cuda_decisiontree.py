@@ -131,9 +131,7 @@ class Node(object):
     self.right_child = None
     self.height = None
 
-
 class DecisionTree(object): 
-
   COMPT_THREADS_PER_BLOCK = 32  #The number of threads do computation per block
   RESHUFFLE_THREADS_PER_BLOCK = 32
 
@@ -191,7 +189,6 @@ class DecisionTree(object):
     self.count_total_kernel = mk_scan_total(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_labels, self.dtype_counts) 
     self.comput_total_kernel = mk_compute_total(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_samples, self.dtype_labels, self.dtype_counts, "comput_kernel_total.cu")
 
-
     """ Use prepare to improve speed """
     self.kernel.prepare("PPPPPPiii")
     self.scan_kernel.prepare("PPiii") 
@@ -219,7 +216,6 @@ class DecisionTree(object):
     self.label_count = gpuarray.empty((self.COMPT_THREADS_PER_BLOCK + 1) * self.num_labels * samples.shape[0], dtype = self.dtype_counts)  
     self.label_total = gpuarray.empty(self.num_labels, dtype = self.dtype_counts)
     
-
     with timer("argsort"):
       for i,f in enumerate(samples):
         sort_idx = np.argsort(f)
@@ -232,8 +228,7 @@ class DecisionTree(object):
     self.sorted_labels_gpu = gpuarray.to_gpu(sorted_labels)    
     self.sorted_samples_gpu_ = self.sorted_samples_gpu.copy() 
     self.sorted_indices_gpu_ = self.sorted_indices_gpu.copy()
-    self.sorted_labels_gpu_ = self.sorted_labels_gpu.copy() 
-      
+    self.sorted_labels_gpu_ = self.sorted_labels_gpu.copy()  
     sorted_samples = None
     sorted_indices = None
     sorted_labels = None
@@ -289,8 +284,7 @@ class DecisionTree(object):
                 gpuarrays_in[1].ptr + labels_offset,
                 self.label_total.ptr,
                 n_samples)
-    
-    
+     
     self.comput_total_kernel.prepared_call(
               grid,
               block,
@@ -302,8 +296,7 @@ class DecisionTree(object):
               self.min_split.ptr,
               n_samples,
               self.stride)
-    
-    
+
     """ 
     self.kernel.prepared_call(
               grid,
@@ -341,7 +334,8 @@ class DecisionTree(object):
 
     row = ret_node.feature_index
     col = self.min_split.get()[row]
-   
+    
+    #Record the feature threshold, only transfer a small portion of gpu memory to host memory.
     cuda.memcpy_dtoh(self.threshold_values, gpuarrays_in[2].ptr + int(samples_offset) + int(self.stride * row * self.samples_itemsize + col * self.samples_itemsize))
     ret_node.feature_threshold = (float(self.threshold_values[0]) + float(self.threshold_values[1])) / 2 
 
@@ -356,7 +350,6 @@ class DecisionTree(object):
                       self.mark_table.ptr, 
                       self.stride
                       )
-
     self.shuffle_kernel.prepared_call(
                       (self.n_features, 1),
                       block,
@@ -403,20 +396,15 @@ class DecisionTree(object):
     recursive_print(self.root)
 
 if __name__ == "__main__": 
-  x_train, y_train = datasource.load_data("db") 
-  """
+  x_train, y_train = datasource.load_data("train") 
+
   with timer("Scikit-learn"):
     clf = tree.DecisionTreeClassifier()    
-    clf.max_depth = max_depth 
-    clf = clf.fit(x_train, y_train) 
+    clf = clf.fit(x_train, y_train)  
   """
-
   with timer("Cuda"):
     d = DecisionTree()  
-    #dataset = sklearn.datasets.load_digits()
-    #num_labels = len(dataset.target_names)  
-    #cProfile.run("d.fit(x_train, y_train, DecisionTree.SCAN_KERNEL_P, DecisionTree.COMPUTE_KERNEL_CP)")
     d.fit(x_train, y_train)
     #d.print_tree()
-    print np.allclose(d.predict(x_train), y_train)
-
+    #print np.allclose(d.predict(x_train), y_train)
+  """
