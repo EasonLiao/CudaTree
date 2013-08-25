@@ -1,7 +1,19 @@
 import time
+import numpy as np
 from pycuda.compiler import SourceModule
 
 _kernel_cache = {}
+
+def get_best_dtype(max_value):
+  """ Find the best dtype to minimize the memory usage"""
+  if max_value <= np.iinfo(np.uint8).max:
+    return np.dtype(np.uint8)
+  if max_value <= np.iinfo(np.uint16).max:
+    return np.dtype(np.uint16)
+  if max_value <= np.iinfo(np.uint32).max:
+    return np.dtype(np.uint32)
+  else:
+    return np.dtype(np.uint64)
 
 class timer(object):
   def __init__(self, name):

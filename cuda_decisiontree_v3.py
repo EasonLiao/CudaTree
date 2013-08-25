@@ -6,21 +6,11 @@ import numpy as np
 import math
 from time import sleep
 import datasource
-from util import mk_kernel, mk_tex_kernel, timer, dtype_to_ctype
+from util import mk_kernel, mk_tex_kernel, timer, dtype_to_ctype, get_best_dtype
+from node import Node
+from cuda_base_tree import BaseTree
 
-
-class Node(object):
-  def __init__(self):
-    self.value = None 
-    self.error = None
-    self.samples = None
-    self.feature_threshold = None
-    self.feature_index = None
-    self.left_child = None
-    self.right_child = None
-    self.height = None
-
-class DecisionTree(object): 
+class DecisionTree(BaseTree): 
   COMPT_THREADS_PER_BLOCK = 32  #The number of threads do computation per block.
   RESHUFFLE_THREADS_PER_BLOCK = 32 
 
@@ -37,17 +27,6 @@ class DecisionTree(object):
     self.dtype_counts = None
 
   def fit(self, samples, target, max_depth = None):
-    def get_best_dtype(max_value):
-      """ Find the best dtype to minimize the memory usage"""
-      if max_value <= np.iinfo(np.uint8).max:
-        return np.dtype(np.uint8)
-      if max_value <= np.iinfo(np.uint16).max:
-        return np.dtype(np.uint16)
-      if max_value <= np.iinfo(np.uint32).max:
-        return np.dtype(np.uint32)
-      else:
-        return np.dtype(np.uint64)
-   
     def compile_kernels():
       ctype_indices = dtype_to_ctype(self.dtype_indices)
       ctype_labels = dtype_to_ctype(self.dtype_labels)
@@ -302,36 +281,6 @@ class DecisionTree(object):
     ret_node.right_child = self.__construct(depth + 1, imp_right[ret_node.feature_index], start_idx + col + 1, stop_idx, si_gpu_out, si_gpu_in)
     return ret_node 
 
-  def __predict(self, val):
-    temp = self.root
-    while True:
-      if temp.left_child and temp.right_child:
-        if val[temp.feature_index] < temp.feature_threshold:
-          temp = temp.left_child
-        else:
-          temp = temp.right_child
-      else: 
-          return temp.value
-
-  def predict(self, inputs):
-    res = []
-    for val in inputs:
-      res.append(self.__predict(val))
-    return np.array(res)
-
-  def print_tree(self):
-    def recursive_print(node):
-      if node.left_child and node.right_child:
-        print "Height : %s,  Feature Index : %s,  Threshold : %s Samples: %s" % (node.height, node.feature_index, node.feature_threshold, node.samples)  
-        recursive_print(node.left_child)
-        recursive_print(node.right_child)
-      else:
-        print "Leaf Height : %s,  Samples : %s" % (node.height, node.samples)  
-    
-    if self.root is None:
-      return
-    assert self.root is not None
-    recursive_print(self.root)
 
 
 if __name__ == "__main__":
@@ -346,4 +295,4 @@ if __name__ == "__main__":
     d = DecisionTree()  
     d.fit(x_train, y_train)
     d.print_tree()
-    #print np.allclose(d.predict(x_train), y_train)
+    print np.allclose(d.predict(x_train), y_train)
