@@ -2,7 +2,6 @@
 #include<math.h>
 #include<stdint.h>
 
-#define MAX_NUM_SAMPLES %d
 #define MAX_NUM_LABELS %d
 #define THREADS_PER_BLOCK %d
 #define LABEL_DATA_TYPE %s

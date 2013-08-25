@@ -1,124 +1,12 @@
 import pycuda.autoinit
 import pycuda.driver as cuda
 from pycuda import gpuarray
-from pycuda.compiler import SourceModule
 from sklearn import tree
-import sklearn.datasets
-from sklearn.datasets import load_iris
 import numpy as np
-import pycuda.autoinit
-import pycuda.driver as cuda
-from pycuda import gpuarray
-from pycuda.compiler import SourceModule
 import math
-import sys
-import time 
 from time import sleep
 import datasource 
-
-class timer(object):
-  def __init__(self, name):
-    self.name = name
-
-  def __enter__(self, *args):
-    print "Running %s" % self.name 
-    self.start_t = time.time()
-
-  def __exit__(self, *args):
-    print "Time for %s: %s" % (self.name, time.time() - self.start_t)
-
-def dtype_to_ctype(dtype):
-  if dtype.kind == 'f':
-    if dtype == 'float32':
-      return 'float'
-    else:
-      assert dtype == 'float64', "Unsupported dtype %s" % dtype
-      return 'double'
-  assert dtype.kind in ('u', 'i')
-  return "%s_t" % dtype 
-
-def mk_kernel(n_threads, n_labels, dtype_samples, dtype_labels, dtype_counts, kernel_file,  _cache = {}):
-  kernel_file = "cuda_kernels/" + kernel_file
-  key = (n_threads, n_labels, dtype_samples, dtype_labels)
-  if key in _cache:
-    return _cache[key]
-  
-  with open(kernel_file) as code_file:
-    code = code_file.read() 
-    src = code % (n_threads, n_labels, dtype_to_ctype(dtype_samples), dtype_to_ctype(dtype_labels), dtype_to_ctype(dtype_counts))
-    mod = SourceModule(src)
-    fn = mod.get_function("compute")
-    _cache[key] = fn
-    return fn
-
-def mk_scan_kernel(n_samples, n_labels, n_threads, dtype_labels, dtype_counts, kernel_file, _cache = {}):
-  kernel_file = "cuda_kernels/" + kernel_file
-  key = (n_samples, n_labels)
-  if key in _cache:
-    return _cache[key]
-  
-  with open(kernel_file) as code_file:
-    code = code_file.read()  
-    src = code % (n_samples, n_labels, n_threads, dtype_to_ctype(dtype_labels), dtype_to_ctype(dtype_counts))
-    mod = SourceModule(src)
-    fn = mod.get_function("prefix_scan")
-    _cache[key] = fn
-    return fn
-
-def mk_fill_table_kernel(dtype_indices, kernel_file = "fill_table.cu"):
-  kernel_file = "cuda_kernels/" + kernel_file
-  with open(kernel_file) as code_file:
-    code = code_file.read()
-    src = code % (dtype_to_ctype(dtype_indices), )
-    mod = SourceModule(src)
-    fn = mod.get_function("fill_table")
-    return fn
-
-def mk_shuffle_kernel(dtype_samples, dtype_labels, dtype_indices, kernel_file = "reshuffle.cu"):
-  kernel_file = "cuda_kernels/" + kernel_file
-  with open(kernel_file) as code_file:
-    code = code_file.read()
-    src = code % (dtype_to_ctype(dtype_samples), dtype_to_ctype(dtype_labels), dtype_to_ctype(dtype_indices)) 
-    mod = SourceModule(src)
-    fn = mod.get_function("reshuffle")
-    return fn
-
-def mk_pos_scan_shuffle_kernel(dtype_indices, dtype_samples, dtype_labels, n_threads, kernel_file = "pos_scan_reshuffle_reg_c.cu"):
-  kernel_file = "cuda_kernels/" + kernel_file
-  with open(kernel_file) as code_file:
-    code = code_file.read()
-    src = code % (dtype_to_ctype(dtype_indices), dtype_to_ctype(dtype_samples), dtype_to_ctype(dtype_labels), n_threads) 
-    mod = SourceModule(src)
-    fn = mod.get_function("scan_reshuffle")
-    return fn
-
-def mk_scan_compute_kernel(n_labels, n_threads, dtype_labels, dtype_counts, dtype_samples, kernel_file = "scan_comput_kernel.cu"):
-  kernel_file = "cuda_kernels/" + kernel_file
-  with open(kernel_file) as code_file:
-    code = code_file.read()
-    src = code % (n_labels, n_threads, dtype_to_ctype(dtype_labels), dtype_to_ctype(dtype_counts), dtype_to_ctype(dtype_samples)) 
-    mod = SourceModule(src)
-    fn = mod.get_function("scan_compute")
-    return fn
-
-def mk_scan_total(n_threads, n_labels, dtype_labels, dtype_counts, kernel_file = "scan_kernel_total.cu"):
-  kernel_file = "cuda_kernels/" + kernel_file
-  with open(kernel_file) as code_file:
-    code = code_file.read()
-    src = code % (n_threads, n_labels, dtype_to_ctype(dtype_labels), dtype_to_ctype(dtype_counts)) 
-    mod = SourceModule(src)
-    fn = mod.get_function("count_total")
-    return fn
-
-def mk_compute_total(n_threads, n_labels, dtype_samples, dtype_labels, dtype_counts, kernel_file = "comput_kernel_total.cu"):
-  kernel_file = "cuda_kernels/" + kernel_file
-  with open(kernel_file) as code_file:
-    code = code_file.read()
-    src = code % (n_threads, n_labels, dtype_to_ctype(dtype_samples), dtype_to_ctype(dtype_labels), dtype_to_ctype(dtype_counts)) 
-    mod = SourceModule(src)
-    fn = mod.get_function("compute")
-    return fn
-
+from util import timer, dtype_to_ctype, mk_kernel
 
 class Node(object):
   def __init__(self):
@@ -158,7 +46,62 @@ class DecisionTree(object):
         return np.dtype(np.uint32)
       else:
         return np.dtype(np.uint64)
-         
+    
+    def compile_kernels():
+      ctype_indices = dtype_to_ctype(self.dtype_indices)
+      ctype_labels = dtype_to_ctype(self.dtype_labels)
+      ctype_counts = dtype_to_ctype(self.dtype_counts)
+      ctype_samples = dtype_to_ctype(self.dtype_samples)
+      n_labels = self.num_labels
+      n_threads = self.COMPT_THREADS_PER_BLOCK
+      n_shf_threads = self.RESHUFFLE_THREADS_PER_BLOCK
+
+      self.kernel = mk_kernel((n_threads, n_labels, ctype_samples, ctype_labels, ctype_counts), "compute", "comput_kernel_pp_part.cu")
+      self.scan_kernel = mk_kernel((n_labels, n_threads, ctype_labels, ctype_counts), "prefix_scan", "scan_kernel_p_part.cu")
+      self.fill_kernel = mk_kernel((ctype_indices,), "fill_table", "fill_table.cu")
+      self.shuffle_kernel = mk_kernel((ctype_indices, ctype_samples, ctype_labels, n_shf_threads), "scan_reshuffle", "pos_scan_reshuffle_c.cu")
+      self.count_total_kernel = mk_kernel((n_threads, n_labels,  ctype_labels, ctype_counts), "count_total", "scan_kernel_total.cu")
+      self.comput_total_kernel = mk_kernel((n_threads, n_labels,  ctype_samples, ctype_labels, ctype_counts), "compute", "comput_kernel_total.cu")
+      self.comput_label_loop_kernel = mk_kernel((n_threads, n_labels, ctype_samples, ctype_labels, ctype_counts), "compute", "comput_kernel_label_loop.cu") 
+      """ Use prepare to improve speed """
+      self.kernel.prepare("PPPPPPiii")
+      self.scan_kernel.prepare("PPiii") 
+      self.fill_kernel.prepare("PiiPi")
+      self.shuffle_kernel.prepare("PPPPPPPiii")
+      #self.shuffle_kernel.prepare("PPPPPPPiii")
+      #self.scan_comput_kernel.prepare("PPPPPPiiii") 
+      self.count_total_kernel.prepare("PPi")
+      self.comput_total_kernel.prepare("PPPPPPii") 
+      self.comput_label_loop_kernel.prepare("PPPPPPii") 
+      
+    def allocate_gpuarrays():
+      """ Pre-allocate the GPU memory, don't allocate everytime in __construct"""
+      self.impurity_left = gpuarray.empty(self.n_features, dtype = np.float32)
+      self.impurity_right = gpuarray.empty(self.n_features, dtype = np.float32)
+      self.min_split = gpuarray.empty(self.n_features, dtype = self.dtype_counts)
+      self.mark_table = gpuarray.empty(target.size, dtype = np.uint8)   
+      self.label_count = gpuarray.empty((self.COMPT_THREADS_PER_BLOCK + 1) * self.num_labels * samples.shape[0], dtype = self.dtype_counts)  
+      self.label_total = gpuarray.empty(self.num_labels, dtype = self.dtype_counts)
+    
+    def sort_samples():
+      sorted_indices = np.empty((self.n_features, target.size), dtype = self.dtype_indices)
+      sorted_labels = np.empty((self.n_features, target.size), dtype = self.dtype_labels)
+      sorted_samples = np.empty((self.n_features, target.size), dtype = self.dtype_samples)
+      
+      with timer("argsort"):
+        for i,f in enumerate(samples):
+          sort_idx = np.argsort(f)
+          sorted_indices[i] = sort_idx  
+          sorted_labels[i] = target[sort_idx]
+          sorted_samples[i] = samples[i][sort_idx]
+    
+      self.sorted_samples_gpu = gpuarray.to_gpu(sorted_samples)
+      self.sorted_indices_gpu = gpuarray.to_gpu(sorted_indices)
+      self.sorted_labels_gpu = gpuarray.to_gpu(sorted_labels)    
+      self.sorted_samples_gpu_ = self.sorted_samples_gpu.copy() 
+      self.sorted_indices_gpu_ = self.sorted_indices_gpu.copy()
+      self.sorted_labels_gpu_ = self.sorted_labels_gpu.copy()  
+
     assert isinstance(samples, np.ndarray)
     assert isinstance(target, np.ndarray)
     assert samples.size / samples[0].size == target.size
@@ -179,67 +122,16 @@ class DecisionTree(object):
     self.labels_itemsize = self.dtype_labels.itemsize
     self.target_value = np.zeros(1, self.dtype_labels) #Retrive the label from gpu array at the leaf node.
     self.threshold_values = np.zeros(2, self.dtype_samples) #Retrive the sample threshold values from gpu array.
+    self.n_features = samples.shape[0] 
 
-    self.kernel = mk_kernel(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_samples, self.dtype_labels, self.dtype_counts, "comput_kernel_pp_part.cu")
-    self.scan_kernel = mk_scan_kernel(target.size, self.num_labels, self.COMPT_THREADS_PER_BLOCK, self.dtype_labels, self.dtype_counts, "scan_kernel_p_part.cu")
-    self.fill_kernel = mk_fill_table_kernel(dtype_indices = self.dtype_indices)
-    #self.shuffle_kernel = mk_shuffle_kernel(self.dtype_samples, self.dtype_labels, self.dtype_indices)
-    self.shuffle_kernel = mk_pos_scan_shuffle_kernel(self.dtype_indices, self.dtype_samples, self.dtype_labels, self.RESHUFFLE_THREADS_PER_BLOCK, "pos_scan_reshuffle_c.cu")
-    #self.scan_comput_kernel = mk_scan_compute_kernel(self.num_labels, self.COMPT_THREADS_PER_BLOCK, self.dtype_labels, self.dtype_counts, self.dtype_samples)
-    self.count_total_kernel = mk_scan_total(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_labels, self.dtype_counts) 
-    self.comput_total_kernel = mk_compute_total(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_samples, self.dtype_labels, self.dtype_counts, "comput_kernel_total.cu")
-    self.comput_label_loop_kernel = mk_compute_total(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_samples, self.dtype_labels, self.dtype_counts, "comput_kernel_label_loop.cu")
-    
-
-    """ Use prepare to improve speed """
-    self.kernel.prepare("PPPPPPiii")
-    self.scan_kernel.prepare("PPiii") 
-    self.fill_kernel.prepare("PiiPi")
-    self.shuffle_kernel.prepare("PPPPPPPiii")
-    #self.shuffle_kernel.prepare("PPPPPPPiii")
-    #self.scan_comput_kernel.prepare("PPPPPPiiii") 
-    self.count_total_kernel.prepare("PPi")
-    self.comput_total_kernel.prepare("PPPPPPii") 
-    self.comput_label_loop_kernel.prepare("PPPPPPii") 
-    
-
-    n_features = samples.shape[0]
-    self.n_features = n_features
-
-    """ Pre-allocate the GPU memory, don't allocate everytime in __construct"""
-    self.impurity_left = gpuarray.empty(n_features, dtype = np.float32)
-    self.impurity_right = gpuarray.empty(n_features, dtype = np.float32)
-    self.min_split = gpuarray.empty(n_features, dtype = self.dtype_counts)
-    self.mark_table = gpuarray.empty(target.size, dtype = np.uint8)
-
-    sorted_indices = np.empty((n_features, target.size), dtype = self.dtype_indices)
-    sorted_labels = np.empty((n_features, target.size), dtype = self.dtype_labels)
-    sorted_samples = np.empty((n_features, target.size), dtype = self.dtype_samples)
-    
-    self.label_count = gpuarray.empty((self.COMPT_THREADS_PER_BLOCK + 1) * self.num_labels * samples.shape[0], dtype = self.dtype_counts)  
-    self.label_total = gpuarray.empty(self.num_labels, dtype = self.dtype_counts)
-    
-    with timer("argsort"):
-      for i,f in enumerate(samples):
-        sort_idx = np.argsort(f)
-        sorted_indices[i] = sort_idx  
-        sorted_labels[i] = target[sort_idx]
-        sorted_samples[i] = samples[i][sort_idx]
+    compile_kernels() 
+    allocate_gpuarrays()
+    sort_samples() 
   
-    self.sorted_samples_gpu = gpuarray.to_gpu(sorted_samples)
-    self.sorted_indices_gpu = gpuarray.to_gpu(sorted_indices)
-    self.sorted_labels_gpu = gpuarray.to_gpu(sorted_labels)    
-    self.sorted_samples_gpu_ = self.sorted_samples_gpu.copy() 
-    self.sorted_indices_gpu_ = self.sorted_indices_gpu.copy()
-    self.sorted_labels_gpu_ = self.sorted_labels_gpu.copy()  
-    sorted_samples = None
-    sorted_indices = None
-    sorted_labels = None
 
     assert self.sorted_indices_gpu.strides[0] == target.size * self.sorted_indices_gpu.dtype.itemsize 
     assert self.sorted_labels_gpu.strides[0] == target.size * self.sorted_labels_gpu.dtype.itemsize 
-    assert self.sorted_samples_gpu.strides[0] == target.size * self.sorted_samples_gpu.dtype.itemsize 
-    
+    assert self.sorted_samples_gpu.strides[0] == target.size * self.sorted_samples_gpu.dtype.itemsize  
     self.root = self.__construct(1, 1.0, 0, target.size, (self.sorted_indices_gpu, self.sorted_labels_gpu, self.sorted_samples_gpu),
                                   (self.sorted_indices_gpu_, self.sorted_labels_gpu_, self.sorted_samples_gpu_)) 
     
@@ -298,8 +190,7 @@ class DecisionTree(object):
               self.label_total.ptr,
               self.min_split.ptr,
               n_samples,
-              self.stride)
-      
+              self.stride) 
     """
     self.comput_total_kernel.prepared_call(
               grid,
@@ -347,8 +238,6 @@ class DecisionTree(object):
     imp_total = imp_left + imp_right
     ret_node.feature_index =  imp_total.argmin()
   
-    print imp_total
-    return
 
     if imp_total[ret_node.feature_index] == 4:
       return ret_node
@@ -417,7 +306,7 @@ class DecisionTree(object):
     recursive_print(self.root)
 
 if __name__ == "__main__": 
-  x_train, y_train = datasource.load_data("digits") 
+  x_train, y_train = datasource.load_data("iris") 
   
   """
   with timer("Scikit-learn"):
@@ -427,5 +316,5 @@ if __name__ == "__main__":
   with timer("Cuda"):
     d = DecisionTree()  
     d.fit(x_train, y_train)
-    #d.print_tree()
+    d.print_tree()
     #print np.allclose(d.predict(x_train), y_train)
