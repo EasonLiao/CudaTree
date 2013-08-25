@@ -188,6 +188,8 @@ class DecisionTree(object):
     #self.scan_comput_kernel = mk_scan_compute_kernel(self.num_labels, self.COMPT_THREADS_PER_BLOCK, self.dtype_labels, self.dtype_counts, self.dtype_samples)
     self.count_total_kernel = mk_scan_total(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_labels, self.dtype_counts) 
     self.comput_total_kernel = mk_compute_total(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_samples, self.dtype_labels, self.dtype_counts, "comput_kernel_total.cu")
+    self.comput_label_loop_kernel = mk_compute_total(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_samples, self.dtype_labels, self.dtype_counts, "comput_kernel_label_loop.cu")
+    
 
     """ Use prepare to improve speed """
     self.kernel.prepare("PPPPPPiii")
@@ -198,6 +200,7 @@ class DecisionTree(object):
     #self.scan_comput_kernel.prepare("PPPPPPiiii") 
     self.count_total_kernel.prepare("PPi")
     self.comput_total_kernel.prepare("PPPPPPii") 
+    self.comput_label_loop_kernel.prepare("PPPPPPii") 
     
 
     n_features = samples.shape[0]
@@ -284,7 +287,20 @@ class DecisionTree(object):
                 gpuarrays_in[1].ptr + labels_offset,
                 self.label_total.ptr,
                 n_samples)
-     
+    
+    self.comput_label_loop_kernel.prepared_call(
+              grid,
+              block,
+              gpuarrays_in[2].ptr + samples_offset,
+              gpuarrays_in[1].ptr + labels_offset,
+              self.impurity_left.ptr,
+              self.impurity_right.ptr,
+              self.label_total.ptr,
+              self.min_split.ptr,
+              n_samples,
+              self.stride)
+      
+    """
     self.comput_total_kernel.prepared_call(
               grid,
               block,
@@ -296,7 +312,9 @@ class DecisionTree(object):
               self.min_split.ptr,
               n_samples,
               self.stride)
-
+    """
+    #  self.min_split.get() 
+    
     """ 
     self.kernel.prepared_call(
               grid,
@@ -328,6 +346,9 @@ class DecisionTree(object):
     imp_left = self.impurity_left.get()
     imp_total = imp_left + imp_right
     ret_node.feature_index =  imp_total.argmin()
+  
+    print imp_total
+    return
 
     if imp_total[ret_node.feature_index] == 4:
       return ret_node
@@ -391,13 +412,14 @@ class DecisionTree(object):
         recursive_print(node.left_child)
         recursive_print(node.right_child)
       else:
-        print "Leaf Height : %s,  Samples : %s,  Value: %s" % (node.height, node.samples, node.value)  
+        print "Leaf Height : %s,  Samples : %s" % (node.height, node.samples)  
     assert self.root is not None
     recursive_print(self.root)
 
 if __name__ == "__main__": 
-  x_train, y_train = datasource.load_data("train") 
-
+  x_train, y_train = datasource.load_data("digits") 
+  
+  """
   with timer("Scikit-learn"):
     clf = tree.DecisionTreeClassifier()    
     clf = clf.fit(x_train, y_train)  
@@ -407,4 +429,3 @@ if __name__ == "__main__":
     d.fit(x_train, y_train)
     #d.print_tree()
     #print np.allclose(d.predict(x_train), y_train)
-  """

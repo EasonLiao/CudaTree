@@ -188,10 +188,8 @@ class DecisionTree(object):
     self.fill_kernel = mk_fill_table_kernel(dtype_indices = self.dtype_indices) 
     self.scan_reshuffle_kernel = mk_scan_reshuffle_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK, "pos_scan_reshuffle_si_c.cu")
     self.scan_total_kernel = mk_scan_total_kernel(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_labels, self.dtype_counts, self.dtype_indices)
-    self.comput_total_kernel =  mk_compute_total_kernel(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_samples, self.dtype_labels, self.dtype_counts, self.dtype_indices)  
-    
+    self.comput_total_kernel =  mk_compute_total_kernel(self.COMPT_THREADS_PER_BLOCK, self.num_labels, self.dtype_samples, self.dtype_labels, self.dtype_counts, self.dtype_indices)   
     self.scan_reshuffle_tex, tex_ref = mk_scan_reshuffle_tex_kernel(self.dtype_indices, self.RESHUFFLE_THREADS_PER_BLOCK)
-
 
     """ Use prepare to improve speed """
     self.kernel.prepare("PPPPPPPiiiii")
