@@ -45,8 +45,10 @@ class DecisionTree(BaseTree):
           "scan_reshuffle", "pos_scan_reshuffle_c.cu")
       self.count_total_kernel = mk_kernel((n_threads, n_labels,  ctype_labels, ctype_counts), 
           "count_total", "scan_kernel_total.cu")
-      self.comput_total_kernel = mk_kernel((n_threads, n_labels,  ctype_samples, ctype_labels, ctype_counts), 
-          "compute", "comput_kernel_total.cu")
+      self.comput_total_kernel, tex_ref = mk_tex_kernel((n_threads, n_labels,  ctype_samples, ctype_labels, ctype_counts), 
+          "compute", "tex_label_total", "comput_kernel_total.cu")
+      self.label_total.bind_to_texref_ext(tex_ref)
+      
       self.comput_label_loop_kernel, tex_ref = mk_tex_kernel((n_threads, n_labels, ctype_samples, ctype_labels, 
         ctype_counts), "compute", "tex_label_total", "comput_kernel_label_loop.cu")  
       self.label_total.bind_to_texref_ext(tex_ref)
@@ -166,6 +168,7 @@ class DecisionTree(BaseTree):
                 gpuarrays_in[1].ptr + labels_offset,
                 self.label_total.ptr,
                 n_samples)
+    """
     self.comput_label_loop_kernel.prepared_call(
               grid,
               block,
@@ -189,7 +192,8 @@ class DecisionTree(BaseTree):
               self.min_split.ptr,
               n_samples,
               self.stride)
-    #  self.min_split.get() 
+    """
+    # self.min_split.get() 
     self.kernel.prepared_call(
               grid,
               block,
@@ -266,7 +270,7 @@ class DecisionTree(BaseTree):
     return ret_node 
 
 if __name__ == "__main__": 
-  x_train, y_train = datasource.load_data("train") 
+  x_train, y_train = datasource.load_data("db") 
   
   """
   with timer("Scikit-learn"):

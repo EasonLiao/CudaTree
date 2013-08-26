@@ -10,10 +10,13 @@
 #define COUNT_DATA_TYPE %s
 #define IDX_DATA_TYPE %s
 
+texture<COUNT_DATA_TYPE> tex_label_total;
+
 __device__  float calc_imp_right(COUNT_DATA_TYPE label_previous[MAX_NUM_LABELS], COUNT_DATA_TYPE label_now[MAX_NUM_LABELS], int total_size){
   float sum = 0.0; 
   for(int i = 0; i < MAX_NUM_LABELS; ++i){
-    float count = label_now[i] - label_previous[i];
+    //float count = label_now[i] - label_previous[i];
+    float count = tex1Dfetch(tex_label_total, i) - label_previous[i];
     sum += count * count;
   }
 
@@ -45,17 +48,17 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
   int stop_pos;
   float reg_imp_right = 2.0;
   float reg_imp_left = 2.0;
-  COUNT_DATA_TYPE reg_min_split = 100;
+  COUNT_DATA_TYPE reg_min_split = 0;
 
   __shared__ COUNT_DATA_TYPE shared_count[MAX_NUM_LABELS];
   __shared__ LABEL_DATA_TYPE shared_labels[THREADS_PER_BLOCK];
-  __shared__ COUNT_DATA_TYPE shared_count_total[MAX_NUM_LABELS];
+  //__shared__ COUNT_DATA_TYPE shared_count_total[MAX_NUM_LABELS];
   __shared__ SAMPLE_DATA_TYPE shared_samples[THREADS_PER_BLOCK];
   
 
   for(int i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x){   
       shared_count[i] = 0;
-      shared_count_total[i] = label_total[i];
+      //shared_count_total[i] = label_total[i];
   }
   
   
@@ -80,7 +83,7 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
             continue;
 
           float imp_left = (i + t + 1) / float(n_samples) * calc_imp_left(shared_count, i + 1 + t);
-          float imp_right = (n_samples - i - 1- t) / float(n_samples) * calc_imp_right(shared_count, shared_count_total, n_samples - i - 1 - t);
+          float imp_right = (n_samples - i - 1- t) / float(n_samples) * calc_imp_right(shared_count, label_total, n_samples - i - 1 - t);
           
           if(imp_left + imp_right < reg_imp_right + reg_imp_left){
             reg_imp_left = imp_left;
