@@ -7,13 +7,15 @@
 #define SAMPLE_DATA_TYPE %s
 #define LABEL_DATA_TYPE %s
 #define COUNT_DATA_TYPE %s
+#define IDX_DATA_TYPE %s
 
 texture<COUNT_DATA_TYPE, 1> tex_label_total;
 
 __device__ uint32_t d_square(uint32_t d){ return d * d; }
 
-__global__ void compute(SAMPLE_DATA_TYPE *sorted_samples, 
-                        LABEL_DATA_TYPE *sorted_labels,
+__global__ void compute(IDX_DATA_TYPE *sorted_indices,
+                        SAMPLE_DATA_TYPE *samples, 
+                        LABEL_DATA_TYPE *labels,
                         float *imp_left, 
                         float *imp_right, 
                         COUNT_DATA_TYPE *label_total,
@@ -32,10 +34,12 @@ __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples,
   uint32_t left_count;
   uint32_t right_count;
   uint32_t pos;
+  IDX_DATA_TYPE cur_idx;
 
   __shared__ uint16_t min_thread_index;
   __shared__ COUNT_DATA_TYPE shared_count[MAX_NUM_LABELS];
   //__shared__ COUNT_DATA_TYPE shared_count_total[MAX_NUM_LABELS];
+  __shared__ SAMPLE_DATA_TYPE shared_samples[THREADS_PER_BLOCK + 1];
   __shared__ float shared_imp_total[THREADS_PER_BLOCK];  
   __shared__ uint8_t shared_pos[THREADS_PER_BLOCK];
 
@@ -48,13 +52,23 @@ __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples,
   shared_imp_total[threadIdx.x] = 4.0;
 
   for(int i = 0; i < n_samples - 1; i += blockDim.x){
-    pos = i + threadIdx.x; 
-    cur_label = (pos < n_samples - 1)? sorted_labels[offset + pos] : 0;
+    pos = i + threadIdx.x;
+    cur_idx = (pos < n_samples - 1)? sorted_indices[offset + pos] : 0;
+    cur_label = labels[cur_idx];
     skip = 0;
     left_count = 0;
     right_count = 0;
+    shared_samples[threadIdx.x] = samples[offset + cur_idx];
     
-    if(pos >= n_samples - 1 || sorted_samples[offset + pos] == sorted_samples[offset + pos + 1])
+    if(threadIdx.x == blockDim.x - 1){
+      int next_pos;
+      next_pos = (pos < n_samples - 1)? pos + 1 : n_samples - 1;
+      shared_samples[threadIdx.x + next_pos - pos] = samples[offset + sorted_indices[offset + next_pos]];
+    } 
+
+    __syncthreads();
+
+    if(pos >= n_samples - 1 || shared_samples[threadIdx.x] == shared_samples[threadIdx.x + 1])
       skip = 1;
   
     for(int l = 0; l < MAX_NUM_LABELS; ++l){

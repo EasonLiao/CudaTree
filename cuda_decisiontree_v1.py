@@ -6,7 +6,7 @@ import numpy as np
 import math
 from time import sleep
 import datasource 
-from util import timer, dtype_to_ctype, mk_kernel, get_best_dtype
+from util import timer, dtype_to_ctype, mk_kernel, mk_tex_kernel, get_best_dtype
 from node import Node
 from cuda_base_tree import BaseTree
 
@@ -36,13 +36,21 @@ class DecisionTree(BaseTree):
       n_threads = self.COMPT_THREADS_PER_BLOCK
       n_shf_threads = self.RESHUFFLE_THREADS_PER_BLOCK
 
-      self.kernel = mk_kernel((n_threads, n_labels, ctype_samples, ctype_labels, ctype_counts), "compute", "comput_kernel_pp_part.cu")
-      self.scan_kernel = mk_kernel((n_labels, n_threads, ctype_labels, ctype_counts), "prefix_scan", "scan_kernel_p_part.cu")
+      self.kernel = mk_kernel((n_threads, n_labels, ctype_samples, ctype_labels, ctype_counts), 
+          "compute", "comput_kernel_pp_part.cu")
+      self.scan_kernel = mk_kernel((n_labels, n_threads, ctype_labels, ctype_counts), 
+          "prefix_scan", "scan_kernel_p_part.cu")
       self.fill_kernel = mk_kernel((ctype_indices,), "fill_table", "fill_table.cu")
-      self.shuffle_kernel = mk_kernel((ctype_indices, ctype_samples, ctype_labels, n_shf_threads), "scan_reshuffle", "pos_scan_reshuffle_c.cu")
-      self.count_total_kernel = mk_kernel((n_threads, n_labels,  ctype_labels, ctype_counts), "count_total", "scan_kernel_total.cu")
-      self.comput_total_kernel = mk_kernel((n_threads, n_labels,  ctype_samples, ctype_labels, ctype_counts), "compute", "comput_kernel_total.cu")
-      self.comput_label_loop_kernel = mk_kernel((n_threads, n_labels, ctype_samples, ctype_labels, ctype_counts), "compute", "comput_kernel_label_loop.cu") 
+      self.shuffle_kernel = mk_kernel((ctype_indices, ctype_samples, ctype_labels, n_shf_threads), 
+          "scan_reshuffle", "pos_scan_reshuffle_c.cu")
+      self.count_total_kernel = mk_kernel((n_threads, n_labels,  ctype_labels, ctype_counts), 
+          "count_total", "scan_kernel_total.cu")
+      self.comput_total_kernel = mk_kernel((n_threads, n_labels,  ctype_samples, ctype_labels, ctype_counts), 
+          "compute", "comput_kernel_total.cu")
+      self.comput_label_loop_kernel, tex_ref = mk_tex_kernel((n_threads, n_labels, ctype_samples, ctype_labels, 
+        ctype_counts), "compute", "tex_label_total", "comput_kernel_label_loop.cu")  
+      self.label_total.bind_to_texref_ext(tex_ref)
+      
       """ Use prepare to improve speed """
       self.kernel.prepare("PPPPPPiii")
       self.scan_kernel.prepare("PPiii") 
@@ -60,7 +68,8 @@ class DecisionTree(BaseTree):
       self.impurity_right = gpuarray.empty(self.n_features, dtype = np.float32)
       self.min_split = gpuarray.empty(self.n_features, dtype = self.dtype_counts)
       self.mark_table = gpuarray.empty(target.size, dtype = np.uint8)   
-      self.label_count = gpuarray.empty((self.COMPT_THREADS_PER_BLOCK + 1) * self.num_labels * samples.shape[0], dtype = self.dtype_counts)  
+      self.label_count = gpuarray.empty((self.COMPT_THREADS_PER_BLOCK + 1) * self.num_labels * samples.shape[0], 
+          dtype = self.dtype_counts)  
       self.label_total = gpuarray.empty(self.num_labels, dtype = self.dtype_counts)
     
     def sort_samples():
@@ -104,15 +113,15 @@ class DecisionTree(BaseTree):
     self.threshold_values = np.zeros(2, self.dtype_samples) #Retrive the sample threshold values from gpu array.
     self.n_features = samples.shape[0] 
 
-    compile_kernels() 
     allocate_gpuarrays()
+    compile_kernels() 
     sort_samples() 
   
     assert self.sorted_indices_gpu.strides[0] == target.size * self.sorted_indices_gpu.dtype.itemsize 
     assert self.sorted_labels_gpu.strides[0] == target.size * self.sorted_labels_gpu.dtype.itemsize 
     assert self.sorted_samples_gpu.strides[0] == target.size * self.sorted_samples_gpu.dtype.itemsize  
-    self.root = self.__construct(1, 1.0, 0, target.size, (self.sorted_indices_gpu, self.sorted_labels_gpu, self.sorted_samples_gpu),
-                                  (self.sorted_indices_gpu_, self.sorted_labels_gpu_, self.sorted_samples_gpu_)) 
+    self.root = self.__construct(1, 1.0, 0, target.size, (self.sorted_indices_gpu, self.sorted_labels_gpu, 
+      self.sorted_samples_gpu), (self.sorted_indices_gpu_, self.sorted_labels_gpu_, self.sorted_samples_gpu_)) 
     
 
   def __construct(self, depth, error_rate, start_idx, stop_idx, gpuarrays_in, gpuarrays_out):
@@ -141,7 +150,6 @@ class DecisionTree(BaseTree):
     grid = (self.n_features, 1)
     range_size = int(math.ceil(float(n_samples) / self.COMPT_THREADS_PER_BLOCK))
     n_active_threads = int(math.ceil(float(n_samples) / range_size))
-   
     """
     self.scan_kernel.prepared_call(
                 grid,
@@ -158,7 +166,6 @@ class DecisionTree(BaseTree):
                 gpuarrays_in[1].ptr + labels_offset,
                 self.label_total.ptr,
                 n_samples)
-    
     self.comput_label_loop_kernel.prepared_call(
               grid,
               block,
@@ -169,7 +176,7 @@ class DecisionTree(BaseTree):
               self.label_total.ptr,
               self.min_split.ptr,
               n_samples,
-              self.stride) 
+              self.stride)
     """
     self.comput_total_kernel.prepared_call(
               grid,
@@ -182,10 +189,7 @@ class DecisionTree(BaseTree):
               self.min_split.ptr,
               n_samples,
               self.stride)
-    """
     #  self.min_split.get() 
-    
-    """ 
     self.kernel.prepared_call(
               grid,
               block,
@@ -198,20 +202,21 @@ class DecisionTree(BaseTree):
               self.n_features, 
               n_samples, 
               self.stride)
-    self.scan_comput_kernel.prepared_call(
-              grid,
-              block,
-              gpuarrays_in[1].ptr + labels_offset,
-              gpuarrays_in[2].ptr + samples_offset,
-              self.label_count.ptr,
-              self.impurity_left.ptr,
-              self.impurity_right.ptr,
-              self.min_split.ptr,
-              range_size,
-              n_active_threads,
-              n_samples,
-              self.stride)
     """
+    #self.scan_comput_kernel.prepared_call(
+    #          grid,
+    #          block,
+    #          gpuarrays_in[1].ptr + labels_offset,
+    #          gpuarrays_in[2].ptr + samples_offset,
+    #          self.label_count.ptr,
+    #          self.impurity_left.ptr,
+    #          self.impurity_right.ptr,
+    #          self.min_split.ptr,
+    #          range_size,
+    #          n_active_threads,
+    #          n_samples,
+    #          self.stride)
+    
     imp_right = self.impurity_right.get()  
     imp_left = self.impurity_left.get()
     imp_total = imp_left + imp_right
@@ -225,7 +230,8 @@ class DecisionTree(BaseTree):
     col = self.min_split.get()[row]
     
     #Record the feature threshold, only transfer a small portion of gpu memory to host memory.
-    cuda.memcpy_dtoh(self.threshold_values, gpuarrays_in[2].ptr + int(samples_offset) + int(self.stride * row * self.samples_itemsize + col * self.samples_itemsize))
+    cuda.memcpy_dtoh(self.threshold_values, gpuarrays_in[2].ptr + int(samples_offset) + 
+        int(self.stride * row * self.samples_itemsize + col * self.samples_itemsize))
     ret_node.feature_threshold = (float(self.threshold_values[0]) + float(self.threshold_values[1])) / 2 
 
     block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
@@ -252,14 +258,15 @@ class DecisionTree(BaseTree):
                       n_samples,
                       col,
                       self.stride)
-    ret_node.left_child = self.__construct(depth + 1, imp_left[ret_node.feature_index], start_idx, start_idx + col + 1, gpuarrays_out, gpuarrays_in)
-    ret_node.right_child = self.__construct(depth + 1, imp_right[ret_node.feature_index], start_idx + col + 1, stop_idx, gpuarrays_out, gpuarrays_in)
+    ret_node.left_child = self.__construct(depth + 1, imp_left[ret_node.feature_index], 
+        start_idx, start_idx + col + 1, gpuarrays_out, gpuarrays_in)
+    
+    ret_node.right_child = self.__construct(depth + 1, imp_right[ret_node.feature_index], 
+        start_idx + col + 1, stop_idx, gpuarrays_out, gpuarrays_in)
     return ret_node 
 
-
-
 if __name__ == "__main__": 
-  x_train, y_train = datasource.load_data("iris") 
+  x_train, y_train = datasource.load_data("train") 
   
   """
   with timer("Scikit-learn"):
@@ -270,4 +277,4 @@ if __name__ == "__main__":
     d = DecisionTree()  
     d.fit(x_train, y_train)
     d.print_tree()
-    print np.allclose(d.predict(x_train), y_train)
+    #print np.allclose(d.predict(x_train), y_train)
