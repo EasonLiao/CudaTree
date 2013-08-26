@@ -24,7 +24,7 @@ class BaseTree(object):
           temp = temp.left_child
         else:
           temp = temp.right_child
-      else: 
+      else:
           return temp.value
 
   def predict(self, inputs):

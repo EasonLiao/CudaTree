@@ -21,6 +21,11 @@ def load_data(ds_name):
       ds = cPickle.load(f)
       x_train = ds['data']
       y_train = np.array(ds['fine_labels'])
+  elif ds_name == "db_test":
+    with open("test_batch", "r") as f:
+      ds = cPickle.load(f)
+      x_train = ds['data']
+      y_train = np.array(ds['labels'])
   return x_train, y_train
 
 

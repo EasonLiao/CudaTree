@@ -10,7 +10,7 @@ from util import mk_kernel, mk_tex_kernel, timer, dtype_to_ctype, get_best_dtype
 from node import Node
 from cuda_random_base_tree import RandomBaseTree
 
-class RandomDecisonTreeSmall(RandomBaseTree): 
+class RandomDecisionTreeSmall(RandomBaseTree): 
   COMPT_THREADS_PER_BLOCK = 32  #The number of threads do computation per block.
   RESHUFFLE_THREADS_PER_BLOCK = 32 
 
@@ -225,6 +225,9 @@ class RandomDecisonTreeSmall(RandomBaseTree):
     col = self.min_split.get()[min_idx]
     
     if imp_total[min_idx] == 4:
+      print "!"
+      cuda.memcpy_dtoh(self.target_value_idx, si_gpu_in.ptr + int(start_idx * self.dtype_indices.itemsize))
+      ret_node.value = self.target_value_idx[0] 
       #print "######## depth : %d, n_samples: %d, row: %d, col: %d, start: %d, stop: %d" % 
       #(depth, n_samples, row, col, start_idx, stop_idx)
       return ret_node
