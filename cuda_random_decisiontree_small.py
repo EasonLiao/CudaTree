@@ -14,135 +14,100 @@ class RandomDecisionTreeSmall(RandomBaseTree):
   COMPT_THREADS_PER_BLOCK = 32  #The number of threads do computation per block.
   RESHUFFLE_THREADS_PER_BLOCK = 64 
 
-  def __init__(self):
+  def __init__(self, samples_gpu, labels_gpu, sorted_indices, compt_table, dtype_labels, dtype_samples, 
+      dtype_indices, dtype_counts, n_features, n_samples, n_labels, n_threads, n_shf_threads, max_features = None,
+      max_depth = None):
     self.root = None
-    self.compt_kernel_type = None
-    self.num_labels = None
-    self.label_count = None
+    self.n_labels = n_labels
     self.max_depth = None
-    self.stride = None
-    self.dtype_labels = None
-    self.dtype_samples = None
-    self.dtype_indices = None
-    self.dtype_counts = None
-
-  def fit(self, samples, target, max_features = None, max_depth = None):
-    def compile_kernels():
-      ctype_indices = dtype_to_ctype(self.dtype_indices)
-      ctype_labels = dtype_to_ctype(self.dtype_labels)
-      ctype_counts = dtype_to_ctype(self.dtype_counts)
-      ctype_samples = dtype_to_ctype(self.dtype_samples)
-      n_labels = self.num_labels
-      n_threads = self.COMPT_THREADS_PER_BLOCK
-      n_shf_threads = self.RESHUFFLE_THREADS_PER_BLOCK
-      
-      self.fill_kernel = mk_kernel((ctype_indices,), "fill_table", "fill_table_si.cu") 
-      #self.scan_reshuffle_kernel = mk_kernel((ctype_indices, n_shf_threads), 
-      #    "scan_reshuffle", "pos_scan_reshuffle_si_c.cu")
-      self.scan_total_kernel = mk_kernel((n_threads, n_labels, ctype_labels, ctype_counts, ctype_indices), 
-          "count_total", "scan_kernel_total_si.cu") 
-      self.comput_total_kernel, tex_ref = mk_tex_kernel((n_threads, n_labels, ctype_samples, ctype_labels, 
-        ctype_counts, ctype_indices), "compute", "tex_label_total", "comput_kernel_total_rand.cu")
-      self.label_total.bind_to_texref_ext(tex_ref)
-      self.scan_reshuffle_tex, tex_ref = mk_tex_kernel((ctype_indices, n_shf_threads), 
-          "scan_reshuffle", "tex_mark", "pos_scan_reshuffle_si_c_tex.cu")   
-      self.mark_table.bind_to_texref_ext(tex_ref) 
-      self.comput_label_loop_kernel, tex_ref = mk_tex_kernel((n_threads, n_labels, ctype_samples, 
-        ctype_labels, ctype_counts, ctype_indices), "compute", "tex_label_total", "comput_kernel_label_loop_si.cu") 
-      self.label_total.bind_to_texref_ext(tex_ref)
-      
-      self.comput_label_loop_rand_kernel, tex_ref = mk_tex_kernel((n_threads, n_labels, ctype_samples, 
-        ctype_labels, ctype_counts, ctype_indices), "compute", "tex_label_total", "comput_kernel_label_loop_rand.cu") 
-      self.label_total.bind_to_texref_ext(tex_ref)
-
-      """ Use prepare to improve speed """
-      self.fill_kernel.prepare("PiiPi")
-      #self.scan_reshuffle_kernel.prepare("PPPiiiii")
-      self.scan_reshuffle_tex.prepare("PPPiii") 
-      self.scan_total_kernel.prepare("PPPi")
-      self.comput_total_kernel.prepare("PPPPPPPPii")
-      self.comput_label_loop_kernel.prepare("PPPPPPPii")
-      self.comput_label_loop_rand_kernel.prepare("PPPPPPPPii")
-
-    def allocate_gpuarrays():
-      """ Pre-allocate the GPU memory, don't allocate everytime in __construct"""
-      self.impurity_left = gpuarray.empty(self.max_features, dtype = np.float32)
-      self.impurity_right = gpuarray.empty(self.max_features, dtype = np.float32)
-      self.min_split = gpuarray.empty(self.max_features, dtype = self.dtype_counts)
-      self.mark_table = gpuarray.empty(target.size, dtype = np.uint8)
-      #self.pos_mark_table = gpuarray.empty(self.RESHUFFLE_THREADS_PER_BLOCK * self.n_features, dtype = self.dtype_indices)
-      self.label_total = gpuarray.empty(self.num_labels, self.dtype_indices)  
-      self.subset_indices = gpuarray.empty(self.max_features, dtype = self.dtype_indices)
-    
-    def sort_arrays():
-      sorted_indices = np.empty((self.n_features, target.size), dtype = self.dtype_indices)
-      with timer("argsort"):
-        for i,f in enumerate(samples):
-          sort_idx = np.argsort(f)
-          sorted_indices[i] = sort_idx  
-      self.sorted_indices_gpu = gpuarray.to_gpu(sorted_indices)
-      self.sorted_indices_gpu_ = self.sorted_indices_gpu.copy()
-      self.samples_gpu = gpuarray.to_gpu(samples)
-      self.labels_gpu = gpuarray.to_gpu(target)
-   
-    def release_gpuarrays():
-      self.impurity_left = None
-      self.impurity_right = None
-      self.min_split = None
-      self.mark_table = None
-      self.label_total = None
-      self.subset_indices = None
-      self.sorted_indices_gpu = None
-      self.sorted_indices_gpu_ = None
-      self.samples_gpu = None
-      self.labels_gpu = None
-    
-    def compact_labels():
-      self.compt_table = np.unique(target)
-      self.compt_table.sort()
-      
-      if self.compt_table.size != int(np.max(target)) + 1:
-        for i, val in enumerate(self.compt_table):
-          np.place(target, target == val, i)  
-      self.num_labels = self.compt_table.size
-    
-    target = target.copy()
-    assert isinstance(samples, np.ndarray)
-    assert isinstance(target, np.ndarray)
-    assert samples.size / samples[0].size == target.size
-    
-    compact_labels()
+    self.stride = n_samples
+    self.dtype_labels = dtype_labels
+    self.dtype_samples = dtype_samples
+    self.dtype_indices = dtype_indices
+    self.dtype_counts = dtype_counts
+    self.n_features = n_features
+    self.COMPT_THREADS_PER_BLOCK = n_threads
+    self.RESHUFFLE_THREADS_PER_BLOCK = n_shf_threads
+    self.samples_gpu = samples_gpu
+    self.labels_gpu = labels_gpu
+    self.sorted_indices = sorted_indices
+    self.compt_table = compt_table
     self.max_depth = max_depth
-    self.stride = target.size
+    self.max_features = max_features
+
+  def __compile_kernels(self):
+    ctype_indices = dtype_to_ctype(self.dtype_indices)
+    ctype_labels = dtype_to_ctype(self.dtype_labels)
+    ctype_counts = dtype_to_ctype(self.dtype_counts)
+    ctype_samples = dtype_to_ctype(self.dtype_samples)
+    n_labels = self.n_labels
+    n_threads = self.COMPT_THREADS_PER_BLOCK
+    n_shf_threads = self.RESHUFFLE_THREADS_PER_BLOCK
     
-    self.dtype_indices = get_best_dtype(target.size)
-    self.dtype_counts = self.dtype_indices
-    self.dtype_labels = get_best_dtype(self.num_labels)
-    self.dtype_samples = samples.dtype
-      
-    samples = np.require(np.transpose(samples), requirements = 'C')
-    target = np.require(np.transpose(target), dtype = self.dtype_labels, requirements = 'C') 
+    self.fill_kernel = mk_kernel((ctype_indices,), "fill_table", "fill_table_si.cu") 
+    self.scan_total_kernel = mk_kernel((n_threads, n_labels, ctype_labels, ctype_counts, ctype_indices), 
+        "count_total", "scan_kernel_total_si.cu") 
+    self.comput_total_kernel, tex_ref = mk_tex_kernel((n_threads, n_labels, ctype_samples, ctype_labels, 
+      ctype_counts, ctype_indices), "compute", "tex_label_total", "comput_kernel_total_rand.cu")
+    self.label_total.bind_to_texref_ext(tex_ref)
+    self.scan_reshuffle_tex, tex_ref = mk_tex_kernel((ctype_indices, n_shf_threads), 
+        "scan_reshuffle", "tex_mark", "pos_scan_reshuffle_si_c_tex.cu")   
+    self.mark_table.bind_to_texref_ext(tex_ref) 
+    self.comput_label_loop_kernel, tex_ref = mk_tex_kernel((n_threads, n_labels, ctype_samples, 
+      ctype_labels, ctype_counts, ctype_indices), "compute", "tex_label_total", "comput_kernel_label_loop_si.cu") 
+    self.label_total.bind_to_texref_ext(tex_ref)
     
+    self.comput_label_loop_rand_kernel, tex_ref = mk_tex_kernel((n_threads, n_labels, ctype_samples, 
+      ctype_labels, ctype_counts, ctype_indices), "compute", "tex_label_total", "comput_kernel_label_loop_rand.cu") 
+    self.label_total.bind_to_texref_ext(tex_ref)
+
+    """ Use prepare to improve speed """
+    self.fill_kernel.prepare("PiiPi")
+    self.scan_reshuffle_tex.prepare("PPPiii") 
+    self.scan_total_kernel.prepare("PPPi")
+    self.comput_total_kernel.prepare("PPPPPPPPii")
+    self.comput_label_loop_kernel.prepare("PPPPPPPii")
+    self.comput_label_loop_rand_kernel.prepare("PPPPPPPPii")
+
+  def __allocate_gpuarrays(self):
+    self.impurity_left = gpuarray.empty(self.max_features, dtype = np.float32)
+    self.impurity_right = gpuarray.empty(self.max_features, dtype = np.float32)
+    self.min_split = gpuarray.empty(self.max_features, dtype = self.dtype_counts)
+    self.mark_table = gpuarray.empty(self.stride, dtype = np.uint8)
+    self.label_total = gpuarray.empty(self.n_labels, self.dtype_indices)  
+    self.subset_indices = gpuarray.empty(self.max_features, dtype = self.dtype_indices)
+  
+  def __release_gpuarrays(self):
+    self.impurity_left = None
+    self.impurity_right = None
+    self.min_split = None
+    self.mark_table = None
+    self.label_total = None
+    self.subset_indices = None
+    self.sorted_indices_gpu = None
+    self.sorted_indices_gpu_ = None
+   
+  def fit(self, samples, target): 
     self.samples_itemsize = self.dtype_samples.itemsize
     self.labels_itemsize = self.dtype_labels.itemsize
     self.target_value_idx = np.zeros(1, self.dtype_indices)
     self.threshold_value_idx = np.zeros(2, self.dtype_indices)
-    self.n_features = samples.shape[0]
     
-    if max_features is None:
+    if self.max_features is None:
       self.max_features = int(math.ceil(math.log(self.n_features, 2)))
-    else: self.max_features = max_features
     
     assert self.max_features > 0 and self.max_features <= self.n_features, "max_features must be between 0 and n_features."
     
-    allocate_gpuarrays()
-    compile_kernels()
-    sort_arrays() 
+    self.__allocate_gpuarrays()
+    self.__compile_kernels() 
+    self.sorted_indices_gpu = gpuarray.to_gpu(self.sorted_indices)
+    self.sorted_indices_gpu_ = self.sorted_indices_gpu.copy()
     
     assert self.sorted_indices_gpu.strides[0] == target.size * self.sorted_indices_gpu.dtype.itemsize 
     assert self.samples_gpu.strides[0] == target.size * self.samples_gpu.dtype.itemsize   
+    
     self.root = self.__construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_) 
-    release_gpuarrays()
+    self.__release_gpuarrays()
     self.decorate_nodes(samples, target) 
 
 
@@ -236,7 +201,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     col = self.min_split.get()[min_idx]
     
     if imp_total[min_idx] == 4:
-      print "imp min == 4"
+      print "imp min == 4, n_samples : %s" % (n_samples, )
       cuda.memcpy_dtoh(self.target_value_idx, si_gpu_in.ptr + int(start_idx * self.dtype_indices.itemsize))
       ret_node.value = self.target_value_idx[0] 
       #print "######## depth : %d, n_samples: %d, row: %d, col: %d, start: %d, stop: %d" % 
