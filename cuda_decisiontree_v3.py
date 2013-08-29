@@ -12,7 +12,7 @@ from cuda_base_tree import BaseTree
 
 class DecisionTree(BaseTree): 
   COMPT_THREADS_PER_BLOCK = 32  #The number of threads do computation per block.
-  RESHUFFLE_THREADS_PER_BLOCK = 32 
+  RESHUFFLE_THREADS_PER_BLOCK = 64 
 
   def __init__(self):
     self.root = None
@@ -65,7 +65,7 @@ class DecisionTree(BaseTree):
       #self.shuffle_kernel.prepare("PPPPiiiii")
       #self.pos_scan_kernel.prepare("PPPiiii")    
       self.scan_reshuffle_kernel.prepare("PPPiiiii")
-      self.scan_reshuffle_tex.prepare("PPPiiiii") 
+      self.scan_reshuffle_tex.prepare("PPPiii") 
       self.scan_total_kernel.prepare("PPPi")
       self.comput_total_kernel.prepare("PPPPPPPii")
       self.comput_label_loop_kernel.prepare("PPPPPPPii")
@@ -162,9 +162,15 @@ class DecisionTree(BaseTree):
   
     grid = (self.n_features, 1) 
     block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
-    range_size = int(math.ceil(float(n_samples) / self.COMPT_THREADS_PER_BLOCK))
-    n_active_threads = int(math.ceil(float(n_samples) / range_size))
-    
+    """    
+    if n_samples > 128:
+      block = (128, 1, 1)
+    elif n_samples > 64:
+      block = (64, 1, 1)
+    else:
+      block = (32, 1, 1)
+    """
+
     self.scan_total_kernel.prepared_call(
                 (1, 1),
                 block,
@@ -172,6 +178,7 @@ class DecisionTree(BaseTree):
                 self.labels_gpu.ptr,
                 self.label_total.ptr,
                 n_samples)
+    """ 
     self.comput_label_loop_kernel.prepared_call(
                 grid,
                 block,
@@ -184,6 +191,7 @@ class DecisionTree(BaseTree):
                 self.min_split.ptr,
                 n_samples,
                 self.stride)
+    
     """
     self.comput_total_kernel.prepared_call(
                 grid,
@@ -197,41 +205,11 @@ class DecisionTree(BaseTree):
                 self.min_split.ptr,
                 n_samples,
                 self.stride)
-    self.scan_kernel.prepared_call(
-                grid,
-                block,
-                self.labels_gpu.ptr,
-                self.label_count.ptr,
-                si_gpu_in.ptr + indices_offset,
-                self.n_features, 
-                n_samples,
-                range_size,
-                n_active_threads,
-                self.stride) 
-    self.kernel.prepared_call(
-              grid,
-              block,
-              self.samples_gpu.ptr,
-              self.labels_gpu.ptr,
-              si_gpu_in.ptr + indices_offset,
-              self.impurity_left.ptr,
-              self.impurity_right.ptr,
-              self.label_count.ptr,
-              self.min_split.ptr,
-              range_size,
-              n_active_threads,
-              self.n_features, 
-              n_samples, 
-              self.stride)
-    """
-
     imp_right = self.impurity_right.get()
     imp_left = self.impurity_left.get() 
     imp_total = imp_left + imp_right 
     ret_node.feature_index =  imp_total.argmin()
     
-
-
     row = ret_node.feature_index
     col = self.min_split.get()[row]
     
@@ -256,10 +234,12 @@ class DecisionTree(BaseTree):
                       self.stride
                       )
       
-    
-    block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
-    range_size = int(math.ceil(float(n_samples) / self.RESHUFFLE_THREADS_PER_BLOCK))
-    n_active_threads = int(math.ceil(float(n_samples) / range_size))
+     
+    #block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
+    if n_samples > self.RESHUFFLE_THREADS_PER_BLOCK:
+      block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
+    else:
+      block = (32, 1, 1)
     
     self.scan_reshuffle_tex.prepared_call(
                       grid,
@@ -267,40 +247,10 @@ class DecisionTree(BaseTree):
                       self.mark_table.ptr,
                       si_gpu_in.ptr + indices_offset,
                       si_gpu_out.ptr + indices_offset,
-                      range_size,
-                      n_active_threads,
                       n_samples,
                       col,
                       self.stride) 
 
-    
-    """
-    self.pos_scan_kernel.prepared_call(
-                      grid,
-                      block,
-                      self.mark_table.ptr,
-                      self.pos_mark_table.ptr,
-                      si_gpu_in.ptr + indices_offset,
-                      n_active_threads,
-                      range_size,
-                      n_samples,
-                      self.stride
-                      )
-
-    self.shuffle_kernel.prepared_call(
-                      grid,
-                      block,
-                      self.mark_table.ptr,
-                      si_gpu_in.ptr + indices_offset,
-                      si_gpu_out.ptr + indices_offset,
-                      self.pos_mark_table.ptr,
-                      range_size,
-                      n_active_threads,
-                      n_samples,
-                      col,
-                      self.stride
-                      )  
-    """
      
     ret_node.left_child = self.__construct(depth + 1, imp_left[ret_node.feature_index], 
         start_idx, start_idx + col + 1, si_gpu_out, si_gpu_in)
@@ -311,7 +261,7 @@ class DecisionTree(BaseTree):
 
 
 if __name__ == "__main__":
-  x_train, y_train = datasource.load_data("digits") 
+  x_train, y_train = datasource.load_data("db") 
   """
   with timer("Scikit-learn"):
     clf = tree.DecisionTreeClassifier()    
@@ -320,6 +270,5 @@ if __name__ == "__main__":
   
   with timer("Cuda"):
     d = DecisionTree()  
-    d.fit(x_train, y_train)
-    d.print_tree()
-    #print np.allclose(d.predict(x_train), y_train)
+    d.fit(x_train, y_train, max_depth = None)
+    #d.print_tree()

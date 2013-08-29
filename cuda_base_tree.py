@@ -25,7 +25,10 @@ class BaseTree(object):
         else:
           temp = temp.right_child
       else:
-          return temp.value
+          if self.compt_table is not None:
+            return self.compt_table[temp.value]
+          else:
+            return temp.value
 
   def predict(self, inputs):
     res = []

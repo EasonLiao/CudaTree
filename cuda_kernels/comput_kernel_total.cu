@@ -82,7 +82,7 @@ __global__ void compute(SAMPLE_DATA_TYPE *sorted_samples,
 
           float imp_left = (i + t + 1) / float(n_samples) * calc_imp_left(shared_count, i + 1 + t);
           float imp_right = (n_samples - i - 1- t) / float(n_samples) * calc_imp_right(shared_count, label_total, n_samples - i - 1 - t);
-          
+           
           if(imp_left + imp_right < reg_imp_right + reg_imp_left){
             reg_imp_left = imp_left;
             reg_imp_right = imp_right;

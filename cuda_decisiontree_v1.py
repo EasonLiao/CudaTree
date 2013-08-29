@@ -152,6 +152,7 @@ class DecisionTree(BaseTree):
     grid = (self.n_features, 1)
     range_size = int(math.ceil(float(n_samples) / self.COMPT_THREADS_PER_BLOCK))
     n_active_threads = int(math.ceil(float(n_samples) / range_size))
+    
     """
     self.scan_kernel.prepared_call(
                 grid,
@@ -270,7 +271,7 @@ class DecisionTree(BaseTree):
     return ret_node 
 
 if __name__ == "__main__": 
-  x_train, y_train = datasource.load_data("db") 
+  x_train, y_train = datasource.load_data("train") 
   
   """
   with timer("Scikit-learn"):

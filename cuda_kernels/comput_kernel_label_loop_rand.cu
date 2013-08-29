@@ -40,14 +40,14 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
 
   __shared__ uint16_t min_thread_index;
   __shared__ COUNT_DATA_TYPE shared_count[MAX_NUM_LABELS];
-  //__shared__ COUNT_DATA_TYPE shared_count_total[MAX_NUM_LABELS];
+  __shared__ COUNT_DATA_TYPE shared_count_total[MAX_NUM_LABELS];
   __shared__ SAMPLE_DATA_TYPE shared_samples[THREADS_PER_BLOCK + 1];
   __shared__ float shared_imp_total[THREADS_PER_BLOCK];  
   __shared__ uint8_t shared_pos[THREADS_PER_BLOCK];
 
   for(int i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x){   
       shared_count[i] = 0;
-      //shared_count_total[i] = label_total[i];
+      shared_count_total[i] = label_total[i];
   }
  
   
@@ -94,9 +94,9 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
       if(skip == 0){
         int total = shared_pos[threadIdx.x] + shared_count[l];
         left_count += d_square(total);
-        //right_count += d_square(shared_count_total[l] - total);
+        right_count += d_square(shared_count_total[l] - total);
         //right_count += d_square(label_total[l] - total);
-        right_count += d_square(tex1Dfetch(tex_label_total, l) - total);
+        //right_count += d_square(tex1Dfetch(tex_label_total, l) - total);
       }
       __syncthreads();
 

@@ -12,7 +12,7 @@ from cuda_random_base_tree import RandomBaseTree
 
 class RandomDecisionTreeSmall(RandomBaseTree): 
   COMPT_THREADS_PER_BLOCK = 32  #The number of threads do computation per block.
-  RESHUFFLE_THREADS_PER_BLOCK = 32 
+  RESHUFFLE_THREADS_PER_BLOCK = 64 
 
   def __init__(self):
     self.root = None
@@ -42,7 +42,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       self.scan_total_kernel = mk_kernel((n_threads, n_labels, ctype_labels, ctype_counts, ctype_indices), 
           "count_total", "scan_kernel_total_si.cu") 
       self.comput_total_kernel, tex_ref = mk_tex_kernel((n_threads, n_labels, ctype_samples, ctype_labels, 
-        ctype_counts, ctype_indices), "compute", "tex_label_total", "comput_kernel_total_si.cu")
+        ctype_counts, ctype_indices), "compute", "tex_label_total", "comput_kernel_total_rand.cu")
       self.label_total.bind_to_texref_ext(tex_ref)
       self.scan_reshuffle_tex, tex_ref = mk_tex_kernel((ctype_indices, n_shf_threads), 
           "scan_reshuffle", "tex_mark", "pos_scan_reshuffle_si_c_tex.cu")   
@@ -60,7 +60,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       #self.scan_reshuffle_kernel.prepare("PPPiiiii")
       self.scan_reshuffle_tex.prepare("PPPiii") 
       self.scan_total_kernel.prepare("PPPi")
-      self.comput_total_kernel.prepare("PPPPPPPii")
+      self.comput_total_kernel.prepare("PPPPPPPPii")
       self.comput_label_loop_kernel.prepare("PPPPPPPii")
       self.comput_label_loop_rand_kernel.prepare("PPPPPPPPii")
 
@@ -97,14 +97,24 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       self.samples_gpu = None
       self.labels_gpu = None
     
+    def compact_labels():
+      self.compt_table = np.unique(target)
+      self.compt_table.sort()
+      
+      if self.compt_table.size != int(np.max(target)) + 1:
+        for i, val in enumerate(self.compt_table):
+          np.place(target, target == val, i)  
+      self.num_labels = self.compt_table.size
+    
+    target = target.copy()
     assert isinstance(samples, np.ndarray)
     assert isinstance(target, np.ndarray)
     assert samples.size / samples[0].size == target.size
     
+    compact_labels()
     self.max_depth = max_depth
-    self.num_labels = int(np.max(target)) + 1    
     self.stride = target.size
-
+    
     self.dtype_indices = get_best_dtype(target.size)
     self.dtype_counts = self.dtype_indices
     self.dtype_labels = get_best_dtype(self.num_labels)
@@ -171,7 +181,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       cuda.memcpy_dtoh(self.target_value_idx, si_gpu_in.ptr + int(start_idx * self.dtype_indices.itemsize))
       ret_node.value = self.target_value_idx[0] 
       return ret_node
-  
+    
+
     subset_indices = self.get_indices()
     cuda.memcpy_htod(self.subset_indices.ptr, subset_indices)
 
@@ -185,8 +196,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                 self.labels_gpu.ptr,
                 self.label_total.ptr,
                 n_samples)
-    
-    """
+    """ 
     self.comput_label_loop_rand_kernel.prepared_call(
                 grid,
                 block,
@@ -211,6 +221,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                 self.impurity_right.ptr,
                 self.label_total.ptr,
                 self.min_split.ptr,
+                self.subset_indices.ptr,
                 n_samples,
                 self.stride)
     
@@ -225,7 +236,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     col = self.min_split.get()[min_idx]
     
     if imp_total[min_idx] == 4:
-      print "!"
+      print "imp min == 4"
       cuda.memcpy_dtoh(self.target_value_idx, si_gpu_in.ptr + int(start_idx * self.dtype_indices.itemsize))
       ret_node.value = self.target_value_idx[0] 
       #print "######## depth : %d, n_samples: %d, row: %d, col: %d, start: %d, stop: %d" % 
@@ -268,10 +279,10 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
 
 if __name__ == "__main__":
-  x_train, y_train = datasource.load_data("db") 
+  x_train, y_train = datasource.load_data("train") 
   
   with timer("Cuda"):
-    d = RandomDecisonTreeSmall()  
+    d = RandomDecisionTreeSmall()  
     d.fit(x_train, y_train)
     #d.print_tree()
     #print np.allclose(d.predict(x_train), y_train)
