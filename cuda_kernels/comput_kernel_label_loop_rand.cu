@@ -62,6 +62,8 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
     right_count = 0;
     shared_samples[threadIdx.x] = samples[offset + cur_idx];
     
+    __syncthreads();
+
     if(threadIdx.x == blockDim.x - 1){
       int next_pos;
       next_pos = (pos < n_samples - 1)? pos + 1 : n_samples - 1;

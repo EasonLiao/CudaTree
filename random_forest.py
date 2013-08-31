@@ -3,9 +3,12 @@ from cuda_random_decisiontree_small import RandomDecisionTreeSmall
 from datasource import load_data
 from util import timer, get_best_dtype, dtype_to_ctype, mk_kernel, mk_tex_kernel
 from pycuda import gpuarray
+from threading import Thread
+from time import sleep
+
 
 class RandomForest(object):
-  COMPT_THREADS_PER_BLOCK = 32  
+  COMPT_THREADS_PER_BLOCK = 128 
   RESHUFFLE_THREADS_PER_BLOCK = 64 
   
   def __compact_labels(self, target):
@@ -16,7 +19,7 @@ class RandomForest(object):
         np.place(target, target == val, i) 
     self.n_labels = self.compt_table.size 
 
-  def fit(self, samples, target, n_trees = 100, max_features = None, max_depth = None):
+  def fit(self, samples, target, n_trees = 50, max_features = None, max_depth = None):
     assert isinstance(samples, np.ndarray)
     assert isinstance(target, np.ndarray)
     assert samples.size / samples[0].size == target.size
@@ -39,6 +42,7 @@ class RandomForest(object):
     labels_gpu = gpuarray.to_gpu(target) 
     
     sorted_indices = np.empty((self.n_features, target.size), dtype = self.dtype_indices)
+    
     with timer("argsort"):
       for i,f in enumerate(samples):
         sort_idx = np.argsort(f)
@@ -50,9 +54,9 @@ class RandomForest(object):
       self.RESHUFFLE_THREADS_PER_BLOCK, max_features, max_depth) for i in xrange(n_trees)]   
    
     for i, tree in enumerate(self.forest):
-      print i
-      tree.fit(samples, target)
-
+      with timer("Tree %s" % (i,)):
+        tree.fit(samples, target)
+    
   def predict(self, x):
     res = []
     for tree in self.forest:
@@ -67,13 +71,12 @@ if __name__ == "__main__":
   ft = RandomForest()
   with timer("Cuda fit"):
     ft.fit(x_train, y_train)
- 
+
   with timer("Cuda predict"):
     pre_res  = ft.predict(x_test)
 
   diff = pre_res - y_test
   print "diff: %s, total: %s" % (np.count_nonzero(diff), pre_res.size)
-
   """
   t = RandomDecisionTreeSmall()
   t.fit(x_train, y_train, 100)

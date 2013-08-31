@@ -11,7 +11,7 @@ from node import Node
 from cuda_base_tree import BaseTree
 
 class DecisionTree(BaseTree): 
-  COMPT_THREADS_PER_BLOCK = 32  #The number of threads do computation per block.
+  COMPT_THREADS_PER_BLOCK = 128  #The number of threads do computation per block.
   RESHUFFLE_THREADS_PER_BLOCK = 64 
 
   def __init__(self):
@@ -178,7 +178,6 @@ class DecisionTree(BaseTree):
                 self.labels_gpu.ptr,
                 self.label_total.ptr,
                 n_samples)
-    """ 
     self.comput_label_loop_kernel.prepared_call(
                 grid,
                 block,
@@ -191,7 +190,6 @@ class DecisionTree(BaseTree):
                 self.min_split.ptr,
                 n_samples,
                 self.stride)
-    
     """
     self.comput_total_kernel.prepared_call(
                 grid,
@@ -205,6 +203,7 @@ class DecisionTree(BaseTree):
                 self.min_split.ptr,
                 n_samples,
                 self.stride)
+    """
     imp_right = self.impurity_right.get()
     imp_left = self.impurity_left.get() 
     imp_total = imp_left + imp_right 
@@ -212,10 +211,9 @@ class DecisionTree(BaseTree):
     
     row = ret_node.feature_index
     col = self.min_split.get()[row]
-    
+
     if imp_total[ret_node.feature_index] == 4:
-      #print "######## depth : %d, n_samples: %d, row: %d, col: %d, start: %d, stop: %d" % 
-      #(depth, n_samples, row, col, start_idx, stop_idx)
+      print "######## depth : %d, n_samples: %d, row: %d, col: %d, start: %d, stop: %d" % (depth, n_samples, row, col, start_idx, stop_idx)
       return ret_node
     
     cuda.memcpy_dtoh(self.threshold_value_idx, si_gpu_in.ptr + int(indices_offset) + 
@@ -266,9 +264,8 @@ if __name__ == "__main__":
   with timer("Scikit-learn"):
     clf = tree.DecisionTreeClassifier()    
     clf = clf.fit(x_train, y_train) 
-  """
-  
+  """ 
   with timer("Cuda"):
     d = DecisionTree()  
     d.fit(x_train, y_train, max_depth = None)
-    #d.print_tree()
+    d.print_tree()

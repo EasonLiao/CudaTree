@@ -11,7 +11,7 @@ from node import Node
 from cuda_random_base_tree import RandomBaseTree
 
 class RandomDecisionTreeSmall(RandomBaseTree): 
-  COMPT_THREADS_PER_BLOCK = 32  #The number of threads do computation per block.
+  COMPT_THREADS_PER_BLOCK = 64  #The number of threads do computation per block.
   RESHUFFLE_THREADS_PER_BLOCK = 64 
 
   def __init__(self, samples_gpu, labels_gpu, sorted_indices, compt_table, dtype_labels, dtype_samples, 
@@ -96,8 +96,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     if self.max_features is None:
       self.max_features = int(math.ceil(math.log(self.n_features, 2)))
     
-    assert self.max_features > 0 and self.max_features <= self.n_features, "max_features must be between 0 and n_features."
-    
+    assert self.max_features > 0 and self.max_features <= self.n_features, "max_features must be between 0 and n_features." 
     self.__allocate_gpuarrays()
     self.__compile_kernels() 
     self.sorted_indices_gpu = gpuarray.to_gpu(self.sorted_indices)
@@ -106,7 +105,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     assert self.sorted_indices_gpu.strides[0] == target.size * self.sorted_indices_gpu.dtype.itemsize 
     assert self.samples_gpu.strides[0] == target.size * self.samples_gpu.dtype.itemsize   
     
-    self.root = self.__construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_) 
+
+    self.root = self.__construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_, self.get_indices()) 
     self.__release_gpuarrays()
     self.decorate_nodes(samples, target) 
 
@@ -127,7 +127,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     recursive_decorate(self.root)
 
 
-  def __construct(self, depth, error_rate, start_idx, stop_idx, si_gpu_in, si_gpu_out):
+  def __construct(self, depth, error_rate, start_idx, stop_idx, si_gpu_in, si_gpu_out, subset_indices):
     def check_terminate():
       if error_rate == 0 or (self.max_depth is not None and depth > self.max_depth):
         return True
@@ -147,10 +147,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       ret_node.value = self.target_value_idx[0] 
       return ret_node
     
-
-    subset_indices = self.get_indices()
     cuda.memcpy_htod(self.subset_indices.ptr, subset_indices)
-
     grid = (self.max_features, 1) 
     block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
     
@@ -161,7 +158,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                 self.labels_gpu.ptr,
                 self.label_total.ptr,
                 n_samples)
-    """ 
     self.comput_label_loop_rand_kernel.prepared_call(
                 grid,
                 block,
@@ -189,6 +185,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                 self.subset_indices.ptr,
                 n_samples,
                 self.stride)
+    """
+    subset_indices_left = self.get_indices()
+    subset_indices_right = self.get_indices()
     
     imp_right = self.impurity_right.get()
     imp_left = self.impurity_left.get() 
@@ -237,9 +236,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
     
     ret_node.left_child = self.__construct(depth + 1, imp_left[min_idx], 
-        start_idx, start_idx + col + 1, si_gpu_out, si_gpu_in)
+        start_idx, start_idx + col + 1, si_gpu_out, si_gpu_in, subset_indices_left)
     ret_node.right_child = self.__construct(depth + 1, imp_right[min_idx], 
-        start_idx + col + 1, stop_idx, si_gpu_out, si_gpu_in)
+        start_idx + col + 1, stop_idx, si_gpu_out, si_gpu_in, subset_indices_right)
     return ret_node 
 
 
