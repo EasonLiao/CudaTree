@@ -7,8 +7,6 @@
 __global__ void scan_reshuffle(uint8_t* mark_table,
                           IDX_DATA_TYPE* sorted_indices,
                           IDX_DATA_TYPE* sorted_indices_out,
-                          int range,
-                          int n_active_threads,
                           int n_samples,
                           int split_idx,
                           int stride

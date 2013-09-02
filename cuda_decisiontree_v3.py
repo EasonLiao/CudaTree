@@ -121,7 +121,7 @@ class DecisionTree(BaseTree):
     assert self.sorted_indices_gpu.strides[0] == target.size * self.sorted_indices_gpu.dtype.itemsize 
     assert self.samples_gpu.strides[0] == target.size * self.samples_gpu.dtype.itemsize   
     self.root = self.__construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_) 
-    self.decorate_nodes(samples, target) 
+    #self.decorate_nodes(samples, target) 
 
 
   def decorate_nodes(self, samples, labels):
@@ -190,6 +190,7 @@ class DecisionTree(BaseTree):
                 self.min_split.ptr,
                 n_samples,
                 self.stride)
+    
     """
     self.comput_total_kernel.prepared_call(
                 grid,
@@ -211,6 +212,7 @@ class DecisionTree(BaseTree):
     
     row = ret_node.feature_index
     col = self.min_split.get()[row]
+    
 
     if imp_total[ret_node.feature_index] == 4:
       print "######## depth : %d, n_samples: %d, row: %d, col: %d, start: %d, stop: %d" % (depth, n_samples, row, col, start_idx, stop_idx)
@@ -231,8 +233,6 @@ class DecisionTree(BaseTree):
                       self.mark_table.gpudata, 
                       self.stride
                       )
-      
-     
     #block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
     if n_samples > self.RESHUFFLE_THREADS_PER_BLOCK:
       block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
@@ -248,8 +248,9 @@ class DecisionTree(BaseTree):
                       n_samples,
                       col,
                       self.stride) 
+  
 
-     
+    
     ret_node.left_child = self.__construct(depth + 1, imp_left[ret_node.feature_index], 
         start_idx, start_idx + col + 1, si_gpu_out, si_gpu_in)
     ret_node.right_child = self.__construct(depth + 1, imp_right[ret_node.feature_index], 

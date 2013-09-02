@@ -10,7 +10,7 @@
 #define COUNT_DATA_TYPE %s
 #define IDX_DATA_TYPE %s
 
-texture<COUNT_DATA_TYPE> tex_label_total;
+//texture<COUNT_DATA_TYPE> tex_label_total;
 
 __device__  float calc_imp_right(COUNT_DATA_TYPE label_previous[MAX_NUM_LABELS], COUNT_DATA_TYPE label_now[MAX_NUM_LABELS], int total_size){
   float sum = 0.0; 

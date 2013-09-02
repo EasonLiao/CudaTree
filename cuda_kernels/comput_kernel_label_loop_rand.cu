@@ -9,7 +9,7 @@
 #define COUNT_DATA_TYPE %s
 #define IDX_DATA_TYPE %s
 
-texture<COUNT_DATA_TYPE, 1> tex_label_total;
+//texture<COUNT_DATA_TYPE, 1> tex_label_total;
 
 __device__ uint32_t d_square(uint32_t d){ return d * d; }
 

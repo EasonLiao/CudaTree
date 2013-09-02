@@ -13,4 +13,3 @@ class RandomBaseTree(BaseTree):
       return np.array(random.sample(xrange(self.n_features), self.max_features), dtype=self.dtype_indices)
     else:
       return np.random.permutation(self.n_features)[:self.max_features].astype(self.dtype_indices)
-
