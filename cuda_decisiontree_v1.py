@@ -271,7 +271,7 @@ class DecisionTree(BaseTree):
     return ret_node 
 
 if __name__ == "__main__": 
-  x_train, y_train = datasource.load_data("train") 
+  x_train, y_train = datasource.load_data("db") 
   
   """
   with timer("Scikit-learn"):

@@ -56,6 +56,8 @@ class DecisionTree(BaseTree):
       self.comput_label_loop_kernel, tex_ref = mk_tex_kernel((n_threads, n_labels, ctype_samples, 
         ctype_labels, ctype_counts, ctype_indices), "compute", "tex_label_total", "comput_kernel_label_loop_si.cu") 
       self.label_total.bind_to_texref_ext(tex_ref)
+    
+      self.find_min_kernel = mk_kernel((ctype_counts, 32), "find_min_imp", "find_min_gini.cu")
 
       """ Use prepare to improve speed """
       self.kernel.prepare("PPPPPPPiiiii")
@@ -69,6 +71,8 @@ class DecisionTree(BaseTree):
       self.scan_total_kernel.prepare("PPPi")
       self.comput_total_kernel.prepare("PPPPPPPii")
       self.comput_label_loop_kernel.prepare("PPPPPPPii")
+      self.find_min_kernel.prepare("PPPi")
+
 
     def allocate_gpuarrays():
       """ Pre-allocate the GPU memory, don't allocate everytime in __construct"""
@@ -112,6 +116,8 @@ class DecisionTree(BaseTree):
     self.labels_itemsize = self.dtype_labels.itemsize
     self.target_value_idx = np.zeros(1, self.dtype_indices)
     self.threshold_value_idx = np.zeros(2, self.dtype_indices)
+    self.min_imp_info = np.zeros(4, dtype = np.float32)
+
     self.n_features = samples.shape[0]
     
     allocate_gpuarrays()
@@ -121,7 +127,7 @@ class DecisionTree(BaseTree):
     assert self.sorted_indices_gpu.strides[0] == target.size * self.sorted_indices_gpu.dtype.itemsize 
     assert self.samples_gpu.strides[0] == target.size * self.samples_gpu.dtype.itemsize   
     self.root = self.__construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_) 
-    #self.decorate_nodes(samples, target) 
+    self.decorate_nodes(samples, target) 
 
 
   def decorate_nodes(self, samples, labels):
@@ -178,6 +184,7 @@ class DecisionTree(BaseTree):
                 self.labels_gpu.ptr,
                 self.label_total.ptr,
                 n_samples)
+
     self.comput_label_loop_kernel.prepared_call(
                 grid,
                 block,
@@ -190,6 +197,21 @@ class DecisionTree(BaseTree):
                 self.min_split.ptr,
                 n_samples,
                 self.stride)
+    
+    self.find_min_kernel.prepared_call(
+                (1, 1),
+                (32, 1, 1),
+                self.impurity_left.ptr,
+                self.impurity_right.ptr,
+                self.min_split.ptr,
+                self.n_features)
+    
+    cuda.memcpy_dtoh(self.min_imp_info, self.impurity_left.ptr)
+    min_right = self.min_imp_info[1] 
+    min_left = self.min_imp_info[0] 
+    col = int(self.min_imp_info[2]) 
+    row = int(self.min_imp_info[3])
+    ret_node.feature_index = row
     
     """
     self.comput_total_kernel.prepared_call(
@@ -205,6 +227,7 @@ class DecisionTree(BaseTree):
                 n_samples,
                 self.stride)
     """
+    """
     imp_right = self.impurity_right.get()
     imp_left = self.impurity_left.get() 
     imp_total = imp_left + imp_right 
@@ -212,9 +235,9 @@ class DecisionTree(BaseTree):
     
     row = ret_node.feature_index
     col = self.min_split.get()[row]
-    
+    """
 
-    if imp_total[ret_node.feature_index] == 4:
+    if min_right + min_left == 4:
       print "######## depth : %d, n_samples: %d, row: %d, col: %d, start: %d, stop: %d" % (depth, n_samples, row, col, start_idx, stop_idx)
       return ret_node
     
@@ -251,9 +274,9 @@ class DecisionTree(BaseTree):
   
 
     
-    ret_node.left_child = self.__construct(depth + 1, imp_left[ret_node.feature_index], 
+    ret_node.left_child = self.__construct(depth + 1, min_left, 
         start_idx, start_idx + col + 1, si_gpu_out, si_gpu_in)
-    ret_node.right_child = self.__construct(depth + 1, imp_right[ret_node.feature_index], 
+    ret_node.right_child = self.__construct(depth + 1, min_right, 
         start_idx + col + 1, stop_idx, si_gpu_out, si_gpu_in)
     return ret_node 
 
@@ -270,3 +293,6 @@ if __name__ == "__main__":
     d = DecisionTree()  
     d.fit(x_train, y_train, max_depth = None)
     d.print_tree()
+    #d.predict(x_train)
+    #print np.allclose(d.predict(x_train), y_train)
+

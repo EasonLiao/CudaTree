@@ -25,7 +25,7 @@ class BaseTree(object):
         else:
           temp = temp.right_child
       else:
-          if self.compt_table is not None:
+          if hasattr(self, "compt_table"):
             return self.compt_table[temp.value]
           else:
             return temp.value
