@@ -58,20 +58,20 @@ class DecisionTree(BaseTree):
       self.label_total.bind_to_texref_ext(tex_ref)
     
       self.find_min_kernel = mk_kernel((ctype_counts, 32), "find_min_imp", "find_min_gini.cu")
+      
+      self.predict_kernel = mk_kernel((ctype_indices, ctype_samples, ctype_labels), "predict", "predict.cu")
 
       """ Use prepare to improve speed """
       self.kernel.prepare("PPPPPPPiiiii")
       self.scan_kernel.prepare("PPPiiiii") 
       self.fill_kernel.prepare("PiiPi")
-      #self.shuffle_kernel.prepare("PPPiii")
-      #self.shuffle_kernel.prepare("PPPPiiiii")
-      #self.pos_scan_kernel.prepare("PPPiiii")    
       self.scan_reshuffle_kernel.prepare("PPPiiiii")
       self.scan_reshuffle_tex.prepare("PPPiii") 
       self.scan_total_kernel.prepare("PPPi")
       self.comput_total_kernel.prepare("PPPPPPPii")
       self.comput_label_loop_kernel.prepare("PPPPPPPii")
       self.find_min_kernel.prepare("PPPi")
+      self.predict_kernel.prepare("PPPPPPPii")
 
     def allocate_gpuarrays():
       """ Pre-allocate the GPU memory, don't allocate everytime in __construct"""
@@ -79,7 +79,6 @@ class DecisionTree(BaseTree):
       self.impurity_right = gpuarray.empty(self.n_features, dtype = np.float32)
       self.min_split = gpuarray.empty(self.n_features, dtype = self.dtype_counts)
       self.mark_table = gpuarray.empty(target.size, dtype = np.uint8)
-      #self.pos_mark_table = gpuarray.empty(self.RESHUFFLE_THREADS_PER_BLOCK * self.n_features, dtype = self.dtype_indices)
       self.label_count = gpuarray.empty((self.COMPT_THREADS_PER_BLOCK + 1) * self.num_labels * self.n_features, 
           dtype = self.dtype_counts)  
       self.label_total = gpuarray.empty(self.num_labels, self.dtype_indices)  
@@ -193,20 +192,18 @@ class DecisionTree(BaseTree):
     row = int(self.min_imp_info[3])
     ret_node.feature_index = row
     
-    """
-    self.comput_total_kernel.prepared_call(
-                grid,
-                block,
-                si_gpu_in.ptr + indices_offset,
-                self.samples_gpu.ptr,
-                self.labels_gpu.ptr,
-                self.impurity_left.ptr,
-                self.impurity_right.ptr,
-                self.label_total.ptr,
-                self.min_split.ptr,
-                n_samples,
-                self.stride)
-    """
+    #self.comput_total_kernel.prepared_call(
+    #            grid,
+    #            block,
+    #            si_gpu_in.ptr + indices_offset,
+    #            self.samples_gpu.ptr,
+    #            self.labels_gpu.ptr,
+    #            self.impurity_left.ptr,
+    #            self.impurity_right.ptr,
+    #            self.label_total.ptr,
+    #            self.min_split.ptr,
+    #            n_samples,
+    #            self.stride)
 
     if min_right + min_left == 4:
       print "######## depth : %d, n_samples: %d, row: %d, col: %d, start: %d, stop: %d" % (depth, n_samples, row, col, start_idx, stop_idx)
@@ -251,7 +248,7 @@ class DecisionTree(BaseTree):
 
 
 if __name__ == "__main__":
-  x_train, y_train = datasource.load_data("db") 
+  x_train, y_train = datasource.load_data("iris") 
   """
   with timer("Scikit-learn"):
     clf = tree.DecisionTreeClassifier()    
@@ -261,8 +258,9 @@ if __name__ == "__main__":
     d = DecisionTree()  
     d.fit(x_train, y_train, max_depth = None)
     d.print_tree()
-    #d.predict(x_train)
-    #print d.gpu_predict(x_train)
+  
+  with timer("Predict"):
+    #d.gpu_predict(x_train)
     #print y_train
-    #print np.allclose(d.gpu_predict(x_train), y_train)
+    print np.allclose(d.gpu_predict(x_train), y_train)
 

@@ -1,5 +1,6 @@
 import numpy as np
 from util import get_best_dtype
+from pycuda import gpuarray
 
 class BaseTree(object):
   def __init__(self):
@@ -54,10 +55,31 @@ class BaseTree(object):
         return self.value_array[idx]
 
   def gpu_predict(self, inputs):
-    res = []
-    for val in inputs:
-      res.append(self.__gpu_predict(val))
-    return np.array(res)
+    inputs = np.require(inputs, requirements = "C")
+    n_predict = inputs.shape[0]    
+    
+    predict_gpu = gpuarray.to_gpu(inputs)
+    left_child_gpu = gpuarray.to_gpu(self.left_child_array)
+    right_child_gpu = gpuarray.to_gpu(self.right_child_array)
+    threshold_gpu = gpuarray.to_gpu(self.threshold_array)
+    value_gpu = gpuarray.to_gpu(self.value_array)
+    feature_gpu = gpuarray.to_gpu(self.feature_array)
+    predict_res_gpu = gpuarray.zeros(n_predict, dtype=self.dtype_labels)
+
+    self.predict_kernel.prepared_call(
+                  (n_predict, 1),
+                  (1, 1, 1),
+                  left_child_gpu.ptr,
+                  right_child_gpu.ptr,
+                  feature_gpu.ptr,
+                  threshold_gpu.ptr,
+                  value_gpu.ptr,
+                  predict_gpu.ptr,
+                  predict_res_gpu.ptr,
+                  self.n_features,
+                  self.n_nodes)
+
+    return predict_res_gpu.get()
 
   def decorate_nodes(self, samples, labels):
     """ In __construct function, the node just store the indices of the actual data, now decorate it with the actual data."""
@@ -93,18 +115,11 @@ class BaseTree(object):
         node.value = labels[idx]
         self.value_array[node.nid] = node.value
 
-    dtype_idx = get_best_dtype(self.n_nodes)
-    
-    self.left_child_array = np.zeros(self.n_nodes, dtype_idx)
-    self.right_child_array = np.zeros(self.n_nodes, dtype_idx)
+    self.left_child_array = np.zeros(self.n_nodes, self.dtype_indices)
+    self.right_child_array = np.zeros(self.n_nodes, self.dtype_indices)
     self.threshold_array = np.zeros(self.n_nodes, np.float32)
     self.value_array = np.zeros(self.n_nodes, self.dtype_labels) 
     self.feature_array = np.zeros(self.n_nodes, np.uint16)
 
     assert self.root != None
     recursive_decorate(self.root)
-    print self.left_child_array
-    print self.right_child_array
-    print self.threshold_array
-    print self.value_array
-    print self.feature_array

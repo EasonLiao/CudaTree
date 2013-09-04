@@ -59,6 +59,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       ctype_labels, ctype_counts, ctype_indices), "compute",  "comput_kernel_label_loop_rand.cu") 
     
     self.find_min_kernel = mk_kernel((ctype_counts, 32), "find_min_imp", "find_min_gini.cu")
+      
+    self.predict_kernel = mk_kernel((ctype_indices, ctype_samples, ctype_labels), "predict", "predict.cu")
   
     if hasattr(self.fill_kernel, "is_prepared"):
       return
@@ -74,6 +76,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.comput_label_loop_kernel.prepare("PPPPPPPii")
     self.comput_label_loop_rand_kernel.prepare("PPPPPPPPii")
     self.find_min_kernel.prepare("PPPi")
+    self.predict_kernel.prepare("PPPPPPPii")
 
   def __allocate_gpuarrays(self):
     self.impurity_left = gpuarray.empty(self.max_features, dtype = np.float32)
@@ -115,8 +118,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
     self.root = self.__construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_, self.get_indices()) 
     self.__release_gpuarrays()
-    self.decorate_nodes(samples, target)
-    print "Num nodes: ", self.n_nodes
+    self.gpu_decorate_nodes(samples, target)
 
 
   def __construct(self, depth, error_rate, start_idx, stop_idx, si_gpu_in, si_gpu_out, subset_indices):
