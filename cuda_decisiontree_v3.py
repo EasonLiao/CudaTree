@@ -11,7 +11,7 @@ from node import Node
 from cuda_base_tree import BaseTree
 
 class DecisionTree(BaseTree): 
-  COMPT_THREADS_PER_BLOCK = 128  #The number of threads do computation per block.
+  COMPT_THREADS_PER_BLOCK = 64  #The number of threads do computation per block.
   RESHUFFLE_THREADS_PER_BLOCK = 64 
 
   def __init__(self):
@@ -73,7 +73,6 @@ class DecisionTree(BaseTree):
       self.comput_label_loop_kernel.prepare("PPPPPPPii")
       self.find_min_kernel.prepare("PPPi")
 
-
     def allocate_gpuarrays():
       """ Pre-allocate the GPU memory, don't allocate everytime in __construct"""
       self.impurity_left = gpuarray.empty(self.n_features, dtype = np.float32)
@@ -108,7 +107,7 @@ class DecisionTree(BaseTree):
     self.dtype_counts = self.dtype_indices
     self.dtype_labels = get_best_dtype(self.num_labels)
     self.dtype_samples = samples.dtype
-      
+     
     samples = np.require(np.transpose(samples), requirements = 'C')
     target = np.require(np.transpose(target), dtype = self.dtype_labels, requirements = 'C') 
     
@@ -119,7 +118,8 @@ class DecisionTree(BaseTree):
     self.min_imp_info = np.zeros(4, dtype = np.float32)
 
     self.n_features = samples.shape[0]
-    
+    self.n_nodes = 0
+
     allocate_gpuarrays()
     compile_kernels()
     sort_arrays() 
@@ -127,23 +127,8 @@ class DecisionTree(BaseTree):
     assert self.sorted_indices_gpu.strides[0] == target.size * self.sorted_indices_gpu.dtype.itemsize 
     assert self.samples_gpu.strides[0] == target.size * self.samples_gpu.dtype.itemsize   
     self.root = self.__construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_) 
-    self.decorate_nodes(samples, target) 
-
-
-  def decorate_nodes(self, samples, labels):
-    """ In __construct function, the node just store the indices of the actual data, now decorate it with the actual data."""
-    def recursive_decorate(node):
-      if node.left_child and node.right_child:
-        idx_tuple = node.feature_threshold
-        node.feature_threshold = (float(samples[idx_tuple[0], idx_tuple[1]]) + samples[idx_tuple[0], idx_tuple[2]]) / 2
-        recursive_decorate(node.left_child)
-        recursive_decorate(node.right_child)
-      else:
-        idx = node.value
-        node.value = labels[idx]
-        
-    assert self.root != None
-    recursive_decorate(self.root)
+    #self.decorate_nodes(samples, target) 
+    self.gpu_decorate_nodes(samples, target) 
 
 
   def __construct(self, depth, error_rate, start_idx, stop_idx, si_gpu_in, si_gpu_out):
@@ -160,6 +145,9 @@ class DecisionTree(BaseTree):
     ret_node.error = error_rate
     ret_node.samples = n_samples 
     ret_node.height = depth 
+    ret_node.nid = self.n_nodes
+
+    self.n_nodes += 1
 
     if check_terminate():
       cuda.memcpy_dtoh(self.target_value_idx, si_gpu_in.ptr + int(start_idx * self.dtype_indices.itemsize))
@@ -168,14 +156,6 @@ class DecisionTree(BaseTree):
   
     grid = (self.n_features, 1) 
     block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
-    """    
-    if n_samples > 128:
-      block = (128, 1, 1)
-    elif n_samples > 64:
-      block = (64, 1, 1)
-    else:
-      block = (32, 1, 1)
-    """
 
     self.scan_total_kernel.prepared_call(
                 (1, 1),
@@ -227,15 +207,6 @@ class DecisionTree(BaseTree):
                 n_samples,
                 self.stride)
     """
-    """
-    imp_right = self.impurity_right.get()
-    imp_left = self.impurity_left.get() 
-    imp_total = imp_left + imp_right 
-    ret_node.feature_index =  imp_total.argmin()
-    
-    row = ret_node.feature_index
-    col = self.min_split.get()[row]
-    """
 
     if min_right + min_left == 4:
       print "######## depth : %d, n_samples: %d, row: %d, col: %d, start: %d, stop: %d" % (depth, n_samples, row, col, start_idx, stop_idx)
@@ -245,8 +216,6 @@ class DecisionTree(BaseTree):
         int(row * self.stride + col) * int(self.dtype_indices.itemsize))
     ret_node.feature_threshold = (row, self.threshold_value_idx[0], self.threshold_value_idx[1])
     
-    #sr = self.samples_gpu.get()
-    #print (sr[row][self.threshold_value_idx[0]] + sr[row][self.threshold_value_idx[1]]) / 2 
     self.fill_kernel.prepared_call(
                       (1, 1),
                       (1024, 1, 1),
@@ -256,11 +225,8 @@ class DecisionTree(BaseTree):
                       self.mark_table.gpudata, 
                       self.stride
                       )
-    #block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
-    if n_samples > self.RESHUFFLE_THREADS_PER_BLOCK:
-      block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
-    else:
-      block = (32, 1, 1)
+    
+    block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
     
     self.scan_reshuffle_tex.prepared_call(
                       grid,
@@ -273,9 +239,11 @@ class DecisionTree(BaseTree):
                       self.stride) 
   
 
-    
+    ret_node.left_nid = self.n_nodes 
     ret_node.left_child = self.__construct(depth + 1, min_left, 
         start_idx, start_idx + col + 1, si_gpu_out, si_gpu_in)
+    
+    ret_node.right_nid = self.n_nodes
     ret_node.right_child = self.__construct(depth + 1, min_right, 
         start_idx + col + 1, stop_idx, si_gpu_out, si_gpu_in)
     return ret_node 
@@ -294,5 +262,7 @@ if __name__ == "__main__":
     d.fit(x_train, y_train, max_depth = None)
     d.print_tree()
     #d.predict(x_train)
-    #print np.allclose(d.predict(x_train), y_train)
+    #print d.gpu_predict(x_train)
+    #print y_train
+    #print np.allclose(d.gpu_predict(x_train), y_train)
 

@@ -111,26 +111,12 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     assert self.sorted_indices_gpu.strides[0] == target.size * self.sorted_indices_gpu.dtype.itemsize 
     assert self.samples_gpu.strides[0] == target.size * self.samples_gpu.dtype.itemsize   
     
+    self.n_nodes = 0
 
     self.root = self.__construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_, self.get_indices()) 
     self.__release_gpuarrays()
-    self.decorate_nodes(samples, target) 
-
-
-  def decorate_nodes(self, samples, labels):
-    """ In __construct function, the node just store the indices of the actual data, now decorate it with the actual data."""
-    def recursive_decorate(node):
-      if node.left_child and node.right_child:
-        idx_tuple = node.feature_threshold
-        node.feature_threshold = (float(samples[idx_tuple[0], idx_tuple[1]]) + samples[idx_tuple[0], idx_tuple[2]]) / 2
-        recursive_decorate(node.left_child)
-        recursive_decorate(node.right_child)
-      else:
-        idx = node.value
-        node.value = labels[idx]
-        
-    assert self.root != None
-    recursive_decorate(self.root)
+    self.decorate_nodes(samples, target)
+    print "Num nodes: ", self.n_nodes
 
 
   def __construct(self, depth, error_rate, start_idx, stop_idx, si_gpu_in, si_gpu_out, subset_indices):
@@ -139,7 +125,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
         return True
       else:
         return False 
-    
+   
     n_samples = stop_idx - start_idx
     indices_offset =  start_idx * self.dtype_indices.itemsize
  
@@ -147,6 +133,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     ret_node.error = error_rate
     ret_node.samples = n_samples 
     ret_node.height = depth 
+    ret_node.nid = self.n_nodes
+    
+    self.n_nodes += 1
 
     if check_terminate():
       cuda.memcpy_dtoh(self.target_value_idx, si_gpu_in.ptr + int(start_idx * self.dtype_indices.itemsize))
@@ -221,13 +210,11 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       #print "######## depth : %d, n_samples: %d, row: %d, col: %d, start: %d, stop: %d" % 
       #(depth, n_samples, row, col, start_idx, stop_idx)
       return ret_node
-    
-    
+     
     col = int(self.min_imp_info[2]) 
     row = int(self.min_imp_info[3])
     row = subset_indices[row]
     ret_node.feature_index = row
-    
     
     cuda.memcpy_dtoh(self.threshold_value_idx, si_gpu_in.ptr + int(indices_offset) + 
         int(row * self.stride + col) * int(self.dtype_indices.itemsize))
@@ -260,9 +247,11 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                       col,
                       self.stride) 
 
-    
+    ret_node.left_nid = self.n_nodes
     ret_node.left_child = self.__construct(depth + 1, min_left, 
         start_idx, start_idx + col + 1, si_gpu_out, si_gpu_in, subset_indices_left)
+    
+    ret_node.right_nid = self.n_nodes
     ret_node.right_child = self.__construct(depth + 1, min_right, 
         start_idx + col + 1, stop_idx, si_gpu_out, si_gpu_in, subset_indices_right)
     return ret_node 

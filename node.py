@@ -9,6 +9,9 @@ class Node(object):
     self.left_child = None
     self.right_child = None
     self.height = None
+    self.nid = None
+    self.left_nid = None
+    self.right_nid = None
 
   def __str__(self):
     if self.left_child and self.right_child:
