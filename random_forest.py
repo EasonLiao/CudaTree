@@ -6,7 +6,6 @@ from pycuda import gpuarray
 from threading import Thread
 from time import sleep
 
-
 class RandomForest(object):
   COMPT_THREADS_PER_BLOCK = 64 
   RESHUFFLE_THREADS_PER_BLOCK = 64 
@@ -19,7 +18,7 @@ class RandomForest(object):
         np.place(target, target == val, i) 
     self.n_labels = self.compt_table.size 
 
-  def fit(self, samples, target, n_trees = 10, max_features = None, max_depth = None):
+  def fit(self, samples, target, n_trees = 50, max_features = None, max_depth = None):
     assert isinstance(samples, np.ndarray)
     assert isinstance(target, np.ndarray)
     assert samples.size / samples[0].size == target.size
@@ -34,10 +33,8 @@ class RandomForest(object):
    
     samples = np.require(np.transpose(samples), requirements = 'C')
     target = np.require(np.transpose(target), dtype = self.dtype_labels, requirements = 'C') 
-    
     self.n_features = samples.shape[0]
     self.n_samples = target.size
-
     samples_gpu = gpuarray.to_gpu(samples)
     labels_gpu = gpuarray.to_gpu(target) 
     
@@ -65,8 +62,8 @@ class RandomForest(object):
     return np.array([np.argmax(np.bincount(res[:,i])) for i in xrange(res.shape[1])])
 
 if __name__ == "__main__":
-  x_train, y_train = load_data("db")
-  x_test, y_test = load_data("db")
+  x_train, y_train = load_data("inet")
+  x_test, y_test = load_data("inet_test")
 
   ft = RandomForest()
   with timer("Cuda fit"):
@@ -78,13 +75,4 @@ if __name__ == "__main__":
   diff = pre_res - y_test
   print "diff: %s, total: %s" % (np.count_nonzero(diff), pre_res.size)
   
-  """
-  t = RandomDecisionTreeSmall()
-  t.fit(x_train, y_train, 100)
-  print t.predict(x_test)[0:20]
-  print y_test[0:20]
-  """
-
-  #t.print_tree()
-  #ft = RandomForest() 
   

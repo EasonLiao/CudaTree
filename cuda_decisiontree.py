@@ -36,15 +36,14 @@ class DecisionTree(BaseTree):
       n_threads = self.COMPT_THREADS_PER_BLOCK
       n_shf_threads = self.RESHUFFLE_THREADS_PER_BLOCK
       
-      self.kernel = mk_kernel((n_threads, n_labels, ctype_samples, ctype_labels, ctype_counts, ctype_indices), 
-          "compute", "comput_kernel_si.cu")      
-      self.scan_kernel = mk_kernel((n_labels, n_threads, ctype_labels, ctype_counts, ctype_indices), 
-          "prefix_scan", "scan_kernel_si.cu")
       self.fill_kernel = mk_kernel((ctype_indices,), "fill_table", "fill_table_si.cu") 
+      
       self.scan_reshuffle_kernel = mk_kernel((ctype_indices, n_shf_threads), 
           "scan_reshuffle", "pos_scan_reshuffle_si_c.cu")
+      
       self.scan_total_kernel = mk_kernel((n_threads, n_labels, ctype_labels, ctype_counts, ctype_indices), 
           "count_total", "scan_kernel_total_si.cu") 
+      
       self.comput_total_kernel, tex_ref = mk_tex_kernel((n_threads, n_labels, ctype_samples, ctype_labels, 
         ctype_counts, ctype_indices), "compute", "tex_label_total", "comput_kernel_total_si.cu")
       self.label_total.bind_to_texref_ext(tex_ref)
@@ -62,8 +61,6 @@ class DecisionTree(BaseTree):
       self.predict_kernel = mk_kernel((ctype_indices, ctype_samples, ctype_labels), "predict", "predict.cu")
 
       """ Use prepare to improve speed """
-      self.kernel.prepare("PPPPPPPiiiii")
-      self.scan_kernel.prepare("PPPiiiii") 
       self.fill_kernel.prepare("PiiPi")
       self.scan_reshuffle_kernel.prepare("PPPiiiii")
       self.scan_reshuffle_tex.prepare("PPPiii") 
@@ -126,7 +123,6 @@ class DecisionTree(BaseTree):
     assert self.sorted_indices_gpu.strides[0] == target.size * self.sorted_indices_gpu.dtype.itemsize 
     assert self.samples_gpu.strides[0] == target.size * self.samples_gpu.dtype.itemsize   
     self.root = self.__construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_) 
-    #self.decorate_nodes(samples, target) 
     self.gpu_decorate_nodes(samples, target) 
 
 
@@ -248,7 +244,7 @@ class DecisionTree(BaseTree):
 
 
 if __name__ == "__main__":
-  x_train, y_train = datasource.load_data("iris") 
+  x_train, y_train = datasource.load_data("digits") 
   """
   with timer("Scikit-learn"):
     clf = tree.DecisionTreeClassifier()    

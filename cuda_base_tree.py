@@ -55,9 +55,9 @@ class BaseTree(object):
         return self.value_array[idx]
 
   def gpu_predict(self, inputs):
-    inputs = np.require(inputs, requirements = "C")
+    inputs = np.require(inputs.copy(), requirements = "C")
     n_predict = inputs.shape[0]    
-    
+
     predict_gpu = gpuarray.to_gpu(inputs)
     left_child_gpu = gpuarray.to_gpu(self.left_child_array)
     right_child_gpu = gpuarray.to_gpu(self.right_child_array)
@@ -78,8 +78,11 @@ class BaseTree(object):
                   predict_res_gpu.ptr,
                   self.n_features,
                   self.n_nodes)
-
-    return predict_res_gpu.get()
+    
+    if hasattr(self, "compt_table"):
+      return np.array([self.compt_table[i] for i in predict_res_gpu.get()], dtype = self.compt_table.dtype)
+    else:
+      return predict_res_gpu.get()
 
   def decorate_nodes(self, samples, labels):
     """ In __construct function, the node just store the indices of the actual data, now decorate it with the actual data."""
