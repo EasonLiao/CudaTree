@@ -8,8 +8,8 @@ from time import sleep
 
 
 class RandomForest(object):
-  COMPT_THREADS_PER_BLOCK = 128 
-  RESHUFFLE_THREADS_PER_BLOCK = 128 
+  COMPT_THREADS_PER_BLOCK = 64 
+  RESHUFFLE_THREADS_PER_BLOCK = 64 
   
   def __compact_labels(self, target):
     self.compt_table = np.unique(target)
@@ -19,7 +19,7 @@ class RandomForest(object):
         np.place(target, target == val, i) 
     self.n_labels = self.compt_table.size 
 
-  def fit(self, samples, target, n_trees = 1, max_features = None, max_depth = None):
+  def fit(self, samples, target, n_trees = 10, max_features = None, max_depth = None):
     assert isinstance(samples, np.ndarray)
     assert isinstance(target, np.ndarray)
     assert samples.size / samples[0].size == target.size
@@ -56,30 +56,28 @@ class RandomForest(object):
     for i, tree in enumerate(self.forest):
       with timer("Tree %s" % (i,)):
         tree.fit(samples, target)
-        tree.print_tree()
 
   def predict(self, x):
     res = []
     for tree in self.forest:
-      res.append(tree.predict(x))
+      res.append(tree.gpu_predict(x))
     res = np.array(res)
     return np.array([np.argmax(np.bincount(res[:,i])) for i in xrange(res.shape[1])])
 
 if __name__ == "__main__":
-  x_train, y_train = load_data("iris")
-  x_test, y_test = load_data("train")
+  x_train, y_train = load_data("db")
+  x_test, y_test = load_data("db")
 
   ft = RandomForest()
   with timer("Cuda fit"):
     ft.fit(x_train, y_train)
   
-  """
   with timer("Cuda predict"):
     pre_res  = ft.predict(x_test)
 
   diff = pre_res - y_test
   print "diff: %s, total: %s" % (np.count_nonzero(diff), pre_res.size)
-  """
+  
   """
   t = RandomDecisionTreeSmall()
   t.fit(x_train, y_train, 100)
