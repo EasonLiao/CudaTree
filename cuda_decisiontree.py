@@ -245,11 +245,6 @@ class DecisionTree(BaseTree):
 
 if __name__ == "__main__":
   x_train, y_train = datasource.load_data("digits") 
-  """
-  with timer("Scikit-learn"):
-    clf = tree.DecisionTreeClassifier()    
-    clf = clf.fit(x_train, y_train) 
-  """ 
   with timer("Cuda"):
     d = DecisionTree()  
     d.fit(x_train, y_train, max_depth = None)

@@ -57,7 +57,6 @@ class BaseTree(object):
   def gpu_predict(self, inputs):
     inputs = np.require(inputs.copy(), requirements = "C")
     n_predict = inputs.shape[0]    
-
     predict_gpu = gpuarray.to_gpu(inputs)
     left_child_gpu = gpuarray.to_gpu(self.left_child_array)
     right_child_gpu = gpuarray.to_gpu(self.right_child_array)

@@ -18,7 +18,7 @@ class RandomForest(object):
         np.place(target, target == val, i) 
     self.n_labels = self.compt_table.size 
 
-  def fit(self, samples, target, n_trees = 50, max_features = None, max_depth = None):
+  def fit(self, samples, target, n_trees = 10, max_features = None, max_depth = None):
     assert isinstance(samples, np.ndarray)
     assert isinstance(target, np.ndarray)
     assert samples.size / samples[0].size == target.size
@@ -62,8 +62,8 @@ class RandomForest(object):
     return np.array([np.argmax(np.bincount(res[:,i])) for i in xrange(res.shape[1])])
 
 if __name__ == "__main__":
-  x_train, y_train = load_data("inet")
-  x_test, y_test = load_data("inet_test")
+  x_train, y_train = load_data("db")
+  x_test, y_test = load_data("db")
 
   ft = RandomForest()
   with timer("Cuda fit"):
@@ -74,5 +74,4 @@ if __name__ == "__main__":
 
   diff = pre_res - y_test
   print "diff: %s, total: %s" % (np.count_nonzero(diff), pre_res.size)
-  
   
