@@ -7,7 +7,7 @@ It's still in developing.
   import numpy as np
   from treelearn import load_data, RandomForest
 
-  x_train, y_train = load_data("db")
+  x_train, y_train = load_data("digits")
   forest = RandomForest()
   forest.fit(x_train, y_train)
   forest.predict(x_train)
