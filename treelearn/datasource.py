@@ -1,11 +1,12 @@
 from sklearn.datasets import load_digits, load_iris
 import cPickle
 import numpy as np
+from os import path
 
 _img_data = None
 
 def load_data(ds_name):
-  data_dir = "data/"
+  data_dir = path.dirname(__file__) + "/../data/"
   global _img_data
   if ds_name == "digits":
     ds = load_digits()

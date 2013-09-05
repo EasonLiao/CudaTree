@@ -65,10 +65,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     if hasattr(self.fill_kernel, "is_prepared"):
       return
     
-    print "Prepare"
     self.fill_kernel.is_prepared = True
 
-    """ Use prepare to improve speed """
     self.fill_kernel.prepare("PiiPi")
     self.scan_reshuffle_tex.prepare("PPPiii") 
     self.scan_total_kernel.prepare("PPPi")
@@ -146,9 +144,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     
     cuda.memcpy_htod(self.subset_indices.ptr, subset_indices)
     grid = (self.max_features, 1) 
-    #block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
     
-    if n_samples > 128:
+    if n_samples >= self.COMPT_THREADS_PER_BLOCK:
       block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
     else:
       block = (32, 1, 1)
@@ -174,21 +171,20 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                 self.subset_indices.ptr,
                 n_samples,
                 self.stride)
-    """
-    self.comput_total_kernel.prepared_call(
-                grid,
-                block,
-                si_gpu_in.ptr + indices_offset,
-                self.samples_gpu.ptr,
-                self.labels_gpu.ptr,
-                self.impurity_left.ptr,
-                self.impurity_right.ptr,
-                self.label_total.ptr,
-                self.min_split.ptr,
-                self.subset_indices.ptr,
-                n_samples,
-                self.stride)
-    """
+    
+    #self.comput_total_kernel.prepared_call(
+    #            grid,
+    #            block,
+    #            si_gpu_in.ptr + indices_offset,
+    #            self.samples_gpu.ptr,
+    #            self.labels_gpu.ptr,
+    #            self.impurity_left.ptr,
+    #            self.impurity_right.ptr,
+    #            self.label_total.ptr,
+    #            self.min_split.ptr,
+    #            self.subset_indices.ptr,
+    #            n_samples,
+    #            self.stride)
 
     subset_indices_left = self.get_indices()
     subset_indices_right = self.get_indices()
@@ -209,8 +205,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       print "imp min == 4, n_samples : %s" % (n_samples, )
       cuda.memcpy_dtoh(self.target_value_idx, si_gpu_in.ptr + int(start_idx * self.dtype_indices.itemsize))
       ret_node.value = self.target_value_idx[0] 
-      #print "######## depth : %d, n_samples: %d, row: %d, col: %d, start: %d, stop: %d" % 
-      #(depth, n_samples, row, col, start_idx, stop_idx)
       return ret_node
      
     col = int(self.min_imp_info[2]) 
@@ -258,12 +252,3 @@ class RandomDecisionTreeSmall(RandomBaseTree):
         start_idx + col + 1, stop_idx, si_gpu_out, si_gpu_in, subset_indices_right)
     return ret_node 
 
-
-if __name__ == "__main__":
-  x_train, y_train = datasource.load_data("train") 
-  
-  with timer("Cuda"):
-    d = RandomDecisionTreeSmall()  
-    d.fit(x_train, y_train)
-    #d.print_tree()
-    #print np.allclose(d.predict(x_train), y_train)

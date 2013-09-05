@@ -61,17 +61,4 @@ class RandomForest(object):
     res = np.array(res)
     return np.array([np.argmax(np.bincount(res[:,i])) for i in xrange(res.shape[1])])
 
-if __name__ == "__main__":
-  x_train, y_train = load_data("db")
-  x_test, y_test = load_data("db")
-
-  ft = RandomForest()
-  with timer("Cuda fit"):
-    ft.fit(x_train, y_train)
-  
-  with timer("Cuda predict"):
-    pre_res  = ft.predict(x_test)
-
-  diff = pre_res - y_test
-  print "diff: %s, total: %s" % (np.count_nonzero(diff), pre_res.size)
   

@@ -1,6 +1,7 @@
 import time
 import numpy as np
 from pycuda.compiler import SourceModule
+from os import path
 
 _kernel_cache = {}
 
@@ -39,7 +40,7 @@ def dtype_to_ctype(dtype):
 
 
 def mk_kernel(params, func_name, kernel_file):
-  kernel_file = "cuda_kernels/" + kernel_file
+  kernel_file = path.dirname(__file__) + "/cuda_kernels/" + kernel_file
   key = (params, kernel_file)
   if key in _kernel_cache:
     return _kernel_cache[key]
@@ -53,7 +54,7 @@ def mk_kernel(params, func_name, kernel_file):
     return fn
 
 def mk_tex_kernel(params, func_name, tex_name, kernel_file):
-  kernel_file = "cuda_kernels/" + kernel_file
+  kernel_file = path.dirname(__file__) + "/cuda_kernels/" + kernel_file
   key = (params, kernel_file)
   if key in _kernel_cache:
     return _kernel_cache[key]
