@@ -18,7 +18,7 @@ __global__ void count_total(
   
   __shared__ COUNT_DATA_TYPE shared_count[MAX_NUM_LABELS];
   __shared__ LABEL_DATA_TYPE shared_labels[THREADS_PER_BLOCK]; 
-  int stop_pos;
+  IDX_DATA_TYPE stop_pos;
   
   for(int i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x)
     shared_count[i] = 0;

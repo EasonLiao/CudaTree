@@ -68,3 +68,10 @@ def mk_tex_kernel(params, func_name, tex_name, kernel_file):
     _kernel_cache[key] = (fn, tex)
     return fn, tex
 
+def test_diff(x, y):
+  """ Test how many elements betweenn array x and y are different. """
+  assert isinstance(x, np.ndarray)
+  assert isinstance(y, np.ndarray)
+  assert x.size == y.size
+  diff = x - y
+  return (np.count_nonzero(diff), x.size)
