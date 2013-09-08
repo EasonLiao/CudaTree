@@ -66,6 +66,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.scan_total_bfs = mk_kernel((n_threads, n_labels, ctype_labels, ctype_counts, ctype_indices), "count_total", "scan_kernel_total_bfs.cu")
   
     self.comput_bfs = mk_kernel((n_threads, n_labels, ctype_samples, ctype_labels, ctype_counts, ctype_indices), "compute", "comput_kernel_bfs.cu")
+    
+    self.fill_bfs = mk_kernel((ctype_indices,), "fill_table", "fill_table_bfs.cu")
 
     if hasattr(self.fill_kernel, "is_prepared"):
       return
@@ -83,6 +85,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.predict_kernel.prepare("PPPPPPPii")
     self.scan_total_bfs.prepare("PPPPPPPi")
     self.comput_bfs.prepare("PPPPPPPPPPPPii")
+    self.fill_bfs.prepare("PPPPPPPi")
 
   def __allocate_gpuarrays(self):
     self.impurity_left = gpuarray.empty(self.max_features, dtype = np.float32)
@@ -113,6 +116,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     min_split = np.empty(queue_size, dtype = self.dtype_indices)
     min_err = np.empty(queue_size, dtype = np.float32)
     min_feature_idx = np.empty(queue_size, dtype=np.uint16)
+    total = 0
 
     for i, node in enumerate(self.queue):
       idx_array[i * 2] = node.start_idx
@@ -123,7 +127,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       min_split[i] = node.start_idx + node.split 
       min_err[i] = node.min_err
       min_feature_idx[i] = node.feature_index
-
+      total += node.split + 1
     """
     print si_idx_array
     print idx_array
@@ -139,6 +143,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.impurity_left = gpuarray.empty(queue_size, dtype = np.float32)
     self.impurity_right = gpuarray.empty(queue_size, dtype = np.float32)
     self.min_split = gpuarray.empty(queue_size, dtype = self.dtype_indices)
+    
+    if len(self.mark_table.shape) == 1:
+      self.mark_table = gpuarray.zeros((self.n_features, self.stride), dtype=np.uint8)
 
     self.scan_total_bfs.prepared_call(
             (queue_size, 1),
@@ -170,11 +177,25 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.max_features,
           self.stride)
    
+
+    self.fill_bfs.prepared_call(
+          (queue_size, 1),
+          (32, 1, 1),
+          self.sorted_indices_gpu.ptr,
+          self.sorted_indices_gpu_.ptr,
+          si_idx_array_gpu.ptr,
+          min_feature_idx_gpu.ptr,
+          idx_array_gpu.ptr,
+          self.min_split.ptr,
+          self.mark_table.ptr,
+          self.stride)
+
+    assert  np.sum(self.mark_table.get()) == total 
     assert np.all(min_feature_idx == min_feature_idx_gpu.get())
     assert np.all(min_err == self.impurity_left.get() + self.impurity_right.get())
     assert np.all(min_split == self.min_split.get())
     assert np.all(self.label_total.get() == label_total)
-    #print queue_size, label_total.shape    
+    print queue_size, label_total.shape    
     #print queue_size
     #print "min_error: ", self.queue[0].min_err, self.queue[0].feature_index, self.queue[0].split
     #print "end"
@@ -260,22 +281,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       return 
     """
 
-    self.comput_label_loop_rand_kernel.prepared_call(
-                grid,
-                block,
-                si_gpu_in.ptr + indices_offset,
-                self.samples_gpu.ptr,
-                self.labels_gpu.ptr,
-                self.impurity_left.ptr,
-                self.impurity_right.ptr,
-                self.label_total.ptr,
-                self.min_split.ptr,
-                self.subset_indices.ptr,
-                n_samples,
-                self.stride)
-    
-     
-    #self.comput_total_kernel.prepared_call(
+    #self.comput_label_loop_rand_kernel.prepared_call(
     #            grid,
     #            block,
     #            si_gpu_in.ptr + indices_offset,
@@ -288,6 +294,21 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     #            self.subset_indices.ptr,
     #            n_samples,
     #            self.stride)
+    
+     
+    self.comput_total_kernel.prepared_call(
+                grid,
+                block,
+                si_gpu_in.ptr + indices_offset,
+                self.samples_gpu.ptr,
+                self.labels_gpu.ptr,
+                self.impurity_left.ptr,
+                self.impurity_right.ptr,
+                self.label_total.ptr,
+                self.min_split.ptr,
+                self.subset_indices.ptr,
+                n_samples,
+                self.stride)
 
     subset_indices_left = self.get_indices()
     subset_indices_right = self.get_indices()

@@ -10,13 +10,11 @@
 #define COUNT_DATA_TYPE %s
 #define IDX_DATA_TYPE %s
 
-//texture<COUNT_DATA_TYPE> tex_label_total;
 
 __device__  float calc_imp_right(COUNT_DATA_TYPE label_previous[MAX_NUM_LABELS], COUNT_DATA_TYPE label_now[MAX_NUM_LABELS], int total_size){
   float sum = 0.0; 
   for(int i = 0; i < MAX_NUM_LABELS; ++i){
     float count = label_now[i] - label_previous[i];
-    //float count = tex1Dfetch(tex_label_total, i) - label_previous[i];
     sum += count * count;
   }
 
@@ -83,8 +81,8 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
           else if(shared_samples[t] == samples[offset + sorted_indices[offset + stop_pos + i]])
             continue;
           
-          float imp_left = (i + t + 1) / float(n_samples) * calc_imp_left(shared_count, i + 1 + t);
-          float imp_right = (n_samples - i - 1- t) / float(n_samples) * calc_imp_right(shared_count, shared_count_total, n_samples - i - 1 - t);
+          float imp_left = calc_imp_left(shared_count, i + 1 + t) * (i + t + 1) / n_samples;
+          float imp_right = calc_imp_right(shared_count, shared_count_total, n_samples - i - 1 - t) * (n_samples - i - 1 - t) / n_samples;
           //float imp_right = (n_samples - i - 1- t) / float(n_samples) * calc_imp_right(shared_count, label_total, n_samples - i - 1 - t);
           
           if(imp_left + imp_right < reg_imp_right + reg_imp_left){

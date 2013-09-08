@@ -7,7 +7,7 @@ from threading import Thread
 from time import sleep
 
 class RandomForest(object):
-  COMPT_THREADS_PER_BLOCK = 64 
+  COMPT_THREADS_PER_BLOCK = 32 
   RESHUFFLE_THREADS_PER_BLOCK = 64 
   
   def __compact_labels(self, target):
