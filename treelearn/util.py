@@ -75,3 +75,15 @@ def test_diff(x, y):
   assert x.size == y.size
   diff = x - y
   return (np.count_nonzero(diff), x.size)
+
+
+start_times = {}
+total_times = {}
+
+def start_timer(name):
+  start_times[name] = time.time()
+  
+def end_timer(name):
+  total = total_times.get(name, 0)
+  total += time.time() - start_times[name]
+  total_times[name] = total
