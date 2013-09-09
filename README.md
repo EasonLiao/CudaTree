@@ -1,4 +1,4 @@
-Cuda-Decision-Tree
+CudaTree
 ==================
 Construct Decision Tree on Cuda.
 
@@ -15,7 +15,7 @@ It's still in developing.
 ```
 
 Treelearn is writen for Python 2.7 and depends on:
-* [scikit-learn](http://scikit-learn.org/stable/)
+* [Scikit-learn](http://scikit-learn.org/stable/)
 * [Numpy](http://www.scipy.org/install.html)
 * [PyCUDA](http://documen.tician.de/pycuda/#)
 
