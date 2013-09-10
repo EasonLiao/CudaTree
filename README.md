@@ -1,7 +1,12 @@
 CudaTree
 ==================
-Construct Decision Tree on Cuda.
 
+CudaTree is an implementation of Leo Breiman's random forests[1] for the GPU. A random forest is an ensemble
+of randomized decision trees which individually memorize subsets of your data and vote together to predict new labels.
+CudaTree parallelizes the construction of each individual tree in the ensemble and thus is able to train faster than 
+the latest version of [scikits-learn](http://scikit-learn.org/stable/modules/tree.html). 
+
+[1] http://www.stat.berkeley.edu/~breiman/RandomForests/cc_home.htm
 
 ```python
   import numpy as np
