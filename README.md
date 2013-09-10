@@ -5,10 +5,10 @@ Construct Decision Tree on Cuda.
 
 ```python
   import numpy as np
-  from cuda_tree import load_data, RandomForest
+  from cuda_tree import load_data, RandomForestClassifier
 
   x_train, y_train = load_data("digits")
-  forest = RandomForest()
+  forest = RandomForestClassifier()
   forest.fit(x_train, y_train)
   forest.predict(x_train)
 ```
