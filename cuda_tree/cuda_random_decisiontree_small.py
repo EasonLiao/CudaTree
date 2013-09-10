@@ -15,7 +15,7 @@ import time
 class RandomDecisionTreeSmall(RandomBaseTree): 
   def __init__(self, samples_gpu, labels_gpu, sorted_indices, compt_table, dtype_labels, dtype_samples, 
       dtype_indices, dtype_counts, n_features, n_samples, n_labels, n_threads, n_shf_threads, max_features = None,
-      max_depth = None):
+      max_depth = None, min_samples_leaf = None):
     self.root = None
     self.n_labels = n_labels
     self.max_depth = None
@@ -33,6 +33,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.compt_table = compt_table
     self.max_depth = max_depth
     self.max_features = max_features
+    print "#", min_samples_leaf
 
   def __compile_kernels(self):
     ctype_indices = dtype_to_ctype(self.dtype_indices)
@@ -269,10 +270,10 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.threshold_value_idx = np.zeros(2, self.dtype_indices)
     self.min_imp_info = np.zeros(4, dtype = np.float32)  
     self.queue = deque()
-
+    
     if self.max_features is None:
       self.max_features = int(math.ceil(math.log(self.n_features, 2)))
-    
+
     assert self.max_features > 0 and self.max_features <= self.n_features, "max_features must be between 0 and n_features." 
     self.__allocate_gpuarrays()
     self.__compile_kernels() 
@@ -285,10 +286,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     assert self.sorted_indices_gpu.strides[0] == target.size * self.sorted_indices_gpu.dtype.itemsize 
     assert self.samples_gpu.strides[0] == target.size * self.samples_gpu.dtype.itemsize   
     
-    self.n_nodes = 0
-    
-    self.root = self.__dfs_construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_, self.get_indices()) 
-    
+    self.n_nodes = 0 
+    self.root = self.__dfs_construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_, self.get_indices())  
     self.__bfs_construct() 
     self.__release_gpuarrays()
     self.gpu_decorate_nodes(samples, target)
@@ -331,8 +330,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
     else:
       block = (32, 1, 1)
-    
-    
+     
     self.scan_total_kernel.prepared_call(
                 (1, 1),
                 block,
@@ -405,10 +403,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                       n_samples, 
                       col, 
                       self.mark_table.gpudata, 
-                      self.stride
-                      )
-      
-    
+                      self.stride)
+       
     if n_samples >= self.RESHUFFLE_THREADS_PER_BLOCK:
       block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
     else:

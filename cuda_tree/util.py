@@ -27,7 +27,6 @@ class timer(object):
   def __exit__(self, *args):
     print "Time for %s: %s" % (self.name, time.time() - self.start_t)
 
-
 def dtype_to_ctype(dtype):
   if dtype.kind == 'f':
     if dtype == 'float32':
@@ -37,7 +36,6 @@ def dtype_to_ctype(dtype):
       return 'double'
   assert dtype.kind in ('u', 'i')
   return "%s_t" % dtype 
-
 
 def mk_kernel(params, func_name, kernel_file):
   kernel_file = path.dirname(__file__) + "/cuda_kernels/" + kernel_file
