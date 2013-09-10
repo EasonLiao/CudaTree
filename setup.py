@@ -4,6 +4,11 @@ import cuda_tree
 
 setup(
     name = "cuda_tree",
+    long_decsription='''
+CudaTree
+========
+Building Decision Tree on Cuda.
+''',
     version = cuda_tree.__version__,
     description = "Building decison tree on Cuda",
     author = ["Alex Rubinsteyn", "Yisheng Liao"],
@@ -16,7 +21,7 @@ setup(
         'sklearn',
         'pycuda'
       ],
-    classifiers=['Development Status :: 1 - Alpha',
+    classifiers=['Development Status :: 3 - Alpha',
                   'Topic :: Software Development :: Libraries',
                   'License :: OSI Approved :: BSD License',
                   'Intended Audience :: Developers',
