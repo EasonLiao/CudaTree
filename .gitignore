@@ -1,2 +1,5 @@
 *.pyc
 *.tmp
+data
+build
+*egg-info
