@@ -23,13 +23,16 @@ the latest version of [scikits-learn](http://scikit-learn.org/stable/modules/tre
 ### Dependencies 
 
 CudaTree is writen for Python 2.7 and depends on:
+
 * [Scikit-learn](http://scikit-learn.org/stable/)
 * [Numpy](http://www.scipy.org/install.html)
 * [PyCUDA](http://documen.tician.de/pycuda/#)
 * [Nose](https://nose.readthedocs.org/en/latest/)
-* 
 
 ### Implementation Details 
 
+Trees are first constructed in depth-first order, with a separate kernel launch for each node's subset of the data. 
+Eventually the data gets split into very small subsets and at that point CudaTree switches to breadth-first grouping
+of multiple subsets for each kernel launch. 
 
 
