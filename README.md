@@ -7,7 +7,8 @@ A random forest is an ensemble of randomized decision trees which  vote together
 CudaTree parallelizes the construction of each individual tree in the ensemble and thus is able to train faster than 
 the latest version of [scikits-learn](http://scikit-learn.org/stable/modules/tree.html). 
 
-[1] 
+### Usage
+
 
 ```python
   import numpy as np
@@ -19,9 +20,16 @@ the latest version of [scikits-learn](http://scikit-learn.org/stable/modules/tre
   forest.predict(x_train)
 ```
 
+### Dependencies 
+
 CudaTree is writen for Python 2.7 and depends on:
 * [Scikit-learn](http://scikit-learn.org/stable/)
 * [Numpy](http://www.scipy.org/install.html)
 * [PyCUDA](http://documen.tician.de/pycuda/#)
 * [Nose](https://nose.readthedocs.org/en/latest/)
+* 
+
+### Implementation Details 
+
+
 
