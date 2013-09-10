@@ -5,7 +5,7 @@ import cuda_tree
 setup(
     name = "cuda_tree",
     version = cuda_tree.__version__,
-    description = "building decison tree on Cuda",
+    description = "Building decison tree on Cuda",
     author = ["Alex Rubinsteyn", "Yisheng Liao"],
     author_email = ["alexr@cs.nyu.edu", "yl1912@nyu.edu"],
     packages = find_packages() + ['cuda_tree.test'],

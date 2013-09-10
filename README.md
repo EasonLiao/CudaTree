@@ -2,11 +2,10 @@ CudaTree
 ==================
 Construct Decision Tree on Cuda.
 
-It's still in developing.
 
 ```python
   import numpy as np
-  from treelearn import load_data, RandomForest
+  from cuda_tree import load_data, RandomForest
 
   x_train, y_train = load_data("digits")
   forest = RandomForest()
@@ -14,8 +13,9 @@ It's still in developing.
   forest.predict(x_train)
 ```
 
-Treelearn is writen for Python 2.7 and depends on:
+CudaTree is writen for Python 2.7 and depends on:
 * [Scikit-learn](http://scikit-learn.org/stable/)
 * [Numpy](http://www.scipy.org/install.html)
 * [PyCUDA](http://documen.tician.de/pycuda/#)
+* [Nose](https://nose.readthedocs.org/en/latest/)
 

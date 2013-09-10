@@ -6,8 +6,8 @@ from pycuda import gpuarray
 from threading import Thread
 from time import sleep
 
-class RandomForest(object):
-  COMPT_THREADS_PER_BLOCK = 32 
+class RandomForestClassifier(object):
+  COMPT_THREADS_PER_BLOCK = 64 
   RESHUFFLE_THREADS_PER_BLOCK = 64 
   
   def __compact_labels(self, target):
@@ -59,6 +59,4 @@ class RandomForest(object):
     for tree in self.forest:
       res.append(tree.gpu_predict(x))
     res = np.array(res)
-    return np.array([np.argmax(np.bincount(res[:,i])) for i in xrange(res.shape[1])])
-
-  
+    return np.array([np.argmax(np.bincount(res[:,i])) for i in xrange(res.shape[1])]) 

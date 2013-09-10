@@ -1,3 +1,7 @@
+"""
+This Module is not used in the package.
+"""
+
 import pycuda.autoinit
 import pycuda.driver as cuda
 from pycuda import gpuarray
