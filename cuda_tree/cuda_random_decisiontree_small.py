@@ -33,7 +33,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.compt_table = compt_table
     self.max_depth = max_depth
     self.max_features = max_features
-    print "#", min_samples_leaf
+    self.min_samples_leaf =  min_samples_leaf
 
   def __compile_kernels(self):
     ctype_indices = dtype_to_ctype(self.dtype_indices)
@@ -222,44 +222,51 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       node.feature_threshold = (row, self.threshold_value_idx[0], self.threshold_value_idx[1])
      
       if left_imp + right_imp == 4.0:
-        cuda.memcpy_dtoh(self.target_value_idx, si.ptr + int(node.start_idx * self.dtype_indices.itemsize))
-        node.value = self.target_value_idx[0] 
+        self.__record_leaf(node, node.start_idx, node.stop_idx - node.start_idx, si)
         continue
        
       left_node =  Node()
       right_node = Node()
       
+      left_node.depth = node.depth + 1
       left_node.nid = self.n_nodes 
       node.left_nid = left_node.nid
       self.n_nodes += 1  
       
+      right_node.depth = left_node.depth
       right_node.nid = self.n_nodes
       node.right_nid = right_node.nid
       self.n_nodes += 1
-
       si_id = 1 - node.si_idx
       
       if left_imp != 0.0:
-        left_node.start_idx = node.start_idx
-        left_node.stop_idx = col + 1
-        left_node.si_idx = si_id
-        left_node.subset_indices = self.get_indices()  
-        self.queue.append(left_node)
+        n_samples_left = col + 1 - node.start_idx 
+        if n_samples_left < self.min_samples_leaf or (self.max_depth is not None and left_node.depth >= self.max_depth):
+          self.__record_leaf(left_node, node.start_idx, n_samples_left, si)
+        else:
+          left_node.start_idx = node.start_idx
+          left_node.stop_idx = col + 1
+          left_node.si_idx = si_id
+          left_node.subset_indices = self.get_indices()  
+          self.queue.append(left_node)
       else:
         cuda.memcpy_dtoh(self.target_value_idx, si.ptr + int(node.start_idx * self.dtype_indices.itemsize))
         left_node.value = self.target_value_idx[0]
 
       if right_imp != 0.0:
-        right_node.start_idx = col + 1
-        right_node.stop_idx = node.stop_idx
-        right_node.si_idx = si_id
-        right_node.subset_indices = self.get_indices()
-        self.queue.append(right_node)
+        n_samples_right = node.stop_idx - col - 1
+        if n_samples_right < self.min_samples_leaf or (self.max_depth is not None and right_node.depth >= self.max_depth):
+          self.__record_leaf(right_node, col + 1, n_samples_right, si)
+        else:
+          right_node.start_idx = col + 1
+          right_node.stop_idx = node.stop_idx
+          right_node.si_idx = si_id
+          right_node.subset_indices = self.get_indices()
+          self.queue.append(right_node)
       else:
         cuda.memcpy_dtoh(self.target_value_idx, si.ptr + int((col + 1) * self.dtype_indices.itemsize))
         
-        right_node.value = self.target_value_idx[0] 
-      
+        right_node.value = self.target_value_idx[0]   
       node.left_child = left_node
       node.right_child = right_node
 
@@ -291,10 +298,21 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.__bfs_construct() 
     self.__release_gpuarrays()
     self.gpu_decorate_nodes(samples, target)
+ 
+  def __record_leaf(self, ret_node, start_idx, n_samples, si):
+      """ Pick the indices to record on the leaf node. In decoration step, we'll choose the most common label """
+      if n_samples < 3:
+        cuda.memcpy_dtoh(self.target_value_idx, si.ptr + int(start_idx * self.dtype_indices.itemsize))
+        ret_node.value = self.target_value_idx[0] 
+      else:
+        si_labels = np.empty(n_samples, dtype=self.dtype_indices)
+        cuda.memcpy_dtoh(si_labels, si.ptr + int(start_idx * self.dtype_indices.itemsize))
+        ret_node.value = si_labels
+
 
   def __dfs_construct(self, depth, error_rate, start_idx, stop_idx, si_gpu_in, si_gpu_out, subset_indices):
     def check_terminate():
-      if error_rate == 0 or (self.max_depth is not None and depth > self.max_depth):
+      if error_rate == 0:
         return True
       else:
         return False 
@@ -307,12 +325,17 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     ret_node.samples = n_samples 
     ret_node.height = depth 
     ret_node.nid = self.n_nodes
-    
+    ret_node.depth = depth
+
     self.n_nodes += 1
 
     if check_terminate():
       cuda.memcpy_dtoh(self.target_value_idx, si_gpu_in.ptr + int(start_idx * self.dtype_indices.itemsize))
       ret_node.value = self.target_value_idx[0] 
+      return ret_node
+    
+    if n_samples < self.min_samples_leaf or (self.max_depth is not None and depth >= self.max_depth):
+      self.__record_leaf(ret_node, start_idx, n_samples, si_gpu_in)
       return ret_node
     
     if n_samples <= 64:
@@ -322,6 +345,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       ret_node.subset_indices = subset_indices
       self.queue.append(ret_node)
       return ret_node 
+    
 
     cuda.memcpy_htod(self.subset_indices.ptr, subset_indices)
     grid = (self.max_features, 1) 
@@ -383,8 +407,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     min_left = self.min_imp_info[0] 
     
     if min_left + min_right == 4:
-      cuda.memcpy_dtoh(self.target_value_idx, si_gpu_in.ptr + int(start_idx * self.dtype_indices.itemsize))
-      ret_node.value = self.target_value_idx[0] 
+      self.__record_leaf(ret_node, start_idx, n_samples, si_gpu_in)
       return ret_node
      
     col = int(self.min_imp_info[2]) 

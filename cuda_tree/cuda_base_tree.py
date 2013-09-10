@@ -97,6 +97,9 @@ class BaseTree(object):
         
     assert self.root != None
     recursive_decorate(self.root)
+  
+  def __find_most_common_label(self, x):
+    return np.argmax(np.bincount(x))
 
   def gpu_decorate_nodes(self, samples, labels):
     """ Decorate the nodes for GPU predicting """
@@ -113,9 +116,13 @@ class BaseTree(object):
         recursive_decorate(node.left_child)
         recursive_decorate(node.right_child)
       else:
-        idx = node.value
-        node.value = labels[idx]
-        self.value_array[node.nid] = node.value
+        if isinstance(node.value, np.ndarray):
+          res = labels[node.value]
+          self.value_array[node.nid] = self.__find_most_common_label(res)
+        else:
+          idx = node.value
+          node.value = labels[idx]
+          self.value_array[node.nid] = node.value
 
     self.left_child_array = np.zeros(self.n_nodes, self.dtype_indices)
     self.right_child_array = np.zeros(self.n_nodes, self.dtype_indices)

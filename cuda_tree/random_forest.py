@@ -23,7 +23,7 @@ class RandomForestClassifier(object):
       for i, val in enumerate(target):
         target[i] = trans_table[val]
 
-  def fit(self, samples, target, n_trees = 10, min_samples_leaf = None, max_features = None, max_depth = None):
+  def fit(self, samples, target, n_trees = 10, min_samples_leaf = 1, max_features = None, max_depth = None):
     assert isinstance(samples, np.ndarray)
     assert isinstance(target, np.ndarray)
     assert samples.size / samples[0].size == target.size
