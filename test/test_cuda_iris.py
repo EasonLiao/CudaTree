@@ -1,11 +1,11 @@
 import numpy as np
-from cuda_tree import load_data, RandomForestClassifier, timer
-from cuda_tree import util
+from cudatree import load_data, RandomForestClassifier, timer
+from cudatree import util
 
 x_train, y_train = load_data("iris")
 x_test, y_test = load_data("iris")
 
-def test_digits():
+def test_iris():
   with timer("Cuda treelearn"):
     forest = RandomForestClassifier()
     forest.fit(x_train, y_train, n_trees=10)

@@ -1,6 +1,6 @@
 import numpy as np
-from cuda_tree import load_data, RandomForestClassifier, timer
-from cuda_tree import util
+from cudatree import load_data, RandomForestClassifier, timer
+from cudatree import util
 
 x_train, y_train = load_data("digits")
 x_test, y_test = load_data("digits")

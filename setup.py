@@ -1,21 +1,21 @@
 #!/usr/bin/python
 from setuptools import setup, find_packages
-import cuda_tree
+import cudatree
 
 setup(
-    name = "cuda_tree",
+    name = "cudatree",
     long_decsription='''
 CudaTree
 ========
 Building Decision Tree on Cuda.
 ''',
-    version = cuda_tree.__version__,
+    version = cudatree.__version__,
     description = "Building decison tree on Cuda",
     author = ["Alex Rubinsteyn", "Yisheng Liao"],
     author_email = ["alexr@cs.nyu.edu", "yl1912@nyu.edu"],
-    packages = find_packages() + ['cuda_tree.test'],
-    package_dir = {'cuda_tree.test' : './test'},
-    package_data = {'cuda_tree' : ['cuda_kernels/*.cu']},
+    packages = find_packages() + ['cudatree.test'],
+    package_dir = {'cudatree.test' : './test'},
+    package_data = {'cudatree' : ['cuda_kernels/*.cu']},
     requires = [
         'numpy',
         'sklearn',

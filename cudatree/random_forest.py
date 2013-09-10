@@ -4,6 +4,15 @@ from util import timer, get_best_dtype, dtype_to_ctype, mk_kernel, mk_tex_kernel
 from pycuda import gpuarray
 
 class RandomForestClassifier(object):
+  """A random forest classifier.
+
+    A random forest is a meta estimator that fits a number of classifical
+    decision trees on various sub-samples of the dataset and use averaging
+    to improve the predictive accuracy and control over-fitting.
+    
+    Usage:
+    See RandomForestClassifier.fit
+  """ 
   COMPT_THREADS_PER_BLOCK = 64 
   RESHUFFLE_THREADS_PER_BLOCK = 64 
   
@@ -23,7 +32,37 @@ class RandomForestClassifier(object):
       for i, val in enumerate(target):
         target[i] = trans_table[val]
 
-  def fit(self, samples, target, n_trees = 10, min_samples_leaf = 1, max_features = None, max_depth = None):
+  def fit(self, samples, target, n_trees = 10, min_samples_split = 1, max_features = None, max_depth = None):
+    """Construce multiple trees in the forest.
+
+    Parameters
+    ----------
+    samples:numpy.array of shape = [n_samples, n_features]
+            The training input samples.
+
+    target: numpy.array of shape = [n_samples]
+            The training input labels.
+
+    n_trees : integer, optional (default=10)
+        The number of trees in the forest.
+
+    max_features : int or None, optional (default="log2(n_features)")
+        The number of features to consider when looking for the best split:
+          - If None, then `max_features=log2(n_features)`.
+
+    max_depth : integer or None, optional (default=None)
+        The maximum depth of the tree. If None, then nodes are expanded until
+        all leaves are pure or until all leaves contain less than
+        min_samples_spl samples.
+
+    min_samples_split : integer, optional (default=2)
+        The minimum number of samples required to split an internal node.
+        Note: this parameter is tree-specific.
+    
+    Returns
+    -------
+    None
+    """
     assert isinstance(samples, np.ndarray)
     assert isinstance(target, np.ndarray)
     assert samples.size / samples[0].size == target.size
@@ -47,21 +86,32 @@ class RandomForestClassifier(object):
     
     sorted_indices = np.empty((self.n_features, target.size), dtype = self.dtype_indices)
     
-    with timer("argsort"):
-      for i,f in enumerate(samples):
-        sort_idx = np.argsort(f)
-        sorted_indices[i] = sort_idx  
+    for i,f in enumerate(samples):
+      sort_idx = np.argsort(f)
+      sorted_indices[i] = sort_idx  
  
     self.forest = [RandomDecisionTreeSmall(samples_gpu, labels_gpu, sorted_indices, self.compt_table, 
       self.dtype_labels,self.dtype_samples, self.dtype_indices, self.dtype_counts,
       self.n_features, self.n_samples, self.n_labels, self.COMPT_THREADS_PER_BLOCK,
-      self.RESHUFFLE_THREADS_PER_BLOCK, max_features, max_depth, min_samples_leaf) for i in xrange(n_trees)]   
+      self.RESHUFFLE_THREADS_PER_BLOCK, max_features, max_depth, min_samples_split) for i in xrange(n_trees)]   
    
     for i, tree in enumerate(self.forest):
       with timer("Tree %s" % (i,)):
         tree.fit(samples, target)
 
   def predict(self, x):
+    """Predict labels for giving samples.
+
+    Parameters
+    ----------
+    x:numpy.array of shape = [n_samples, n_features]
+            The predicting input samples.
+    
+    Returns
+    -------
+    y: Array of shape [n_samples].
+        The predicted labels.
+    """
     res = []
     for tree in self.forest:
       res.append(tree.gpu_predict(x))

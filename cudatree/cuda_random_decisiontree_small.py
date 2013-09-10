@@ -15,7 +15,7 @@ import time
 class RandomDecisionTreeSmall(RandomBaseTree): 
   def __init__(self, samples_gpu, labels_gpu, sorted_indices, compt_table, dtype_labels, dtype_samples, 
       dtype_indices, dtype_counts, n_features, n_samples, n_labels, n_threads, n_shf_threads, max_features = None,
-      max_depth = None, min_samples_leaf = None):
+      max_depth = None, min_samples_split = None):
     self.root = None
     self.n_labels = n_labels
     self.max_depth = None
@@ -33,7 +33,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.compt_table = compt_table
     self.max_depth = max_depth
     self.max_features = max_features
-    self.min_samples_leaf =  min_samples_leaf
+    self.min_samples_split =  min_samples_split
 
   def __compile_kernels(self):
     ctype_indices = dtype_to_ctype(self.dtype_indices)
@@ -241,7 +241,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       
       if left_imp != 0.0:
         n_samples_left = col + 1 - node.start_idx 
-        if n_samples_left < self.min_samples_leaf or (self.max_depth is not None and left_node.depth >= self.max_depth):
+        if n_samples_left < self.min_samples_split or (self.max_depth is not None and left_node.depth >= self.max_depth):
           self.__record_leaf(left_node, node.start_idx, n_samples_left, si)
         else:
           left_node.start_idx = node.start_idx
@@ -255,7 +255,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
       if right_imp != 0.0:
         n_samples_right = node.stop_idx - col - 1
-        if n_samples_right < self.min_samples_leaf or (self.max_depth is not None and right_node.depth >= self.max_depth):
+        if n_samples_right < self.min_samples_split or (self.max_depth is not None and right_node.depth >= self.max_depth):
           self.__record_leaf(right_node, col + 1, n_samples_right, si)
         else:
           right_node.start_idx = col + 1
@@ -334,7 +334,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       ret_node.value = self.target_value_idx[0] 
       return ret_node
     
-    if n_samples < self.min_samples_leaf or (self.max_depth is not None and depth >= self.max_depth):
+    if n_samples < self.min_samples_split or (self.max_depth is not None and depth >= self.max_depth):
       self.__record_leaf(ret_node, start_idx, n_samples, si_gpu_in)
       return ret_node
     
