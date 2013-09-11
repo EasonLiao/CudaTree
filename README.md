@@ -35,6 +35,7 @@ CudaTree is writen for Python 2.7 and depends on:
 * The maximum number of features allowed is 65536.
 * The maximum number of categories allowed is 10000(However, CudaTree performs well only when the number of categories is small(<=100)).
 * The compute ability of your GPU should >= 2.0.
+* The performance gain is about 1.5X ~ 2X faster than Scikits-learn. The exact number depends on how powerful your GPU is. 
 
 
 
