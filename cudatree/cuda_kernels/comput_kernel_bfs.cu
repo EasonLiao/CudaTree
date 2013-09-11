@@ -42,8 +42,7 @@ __global__ void compute(
                         uint8_t *si_idx,
                         COUNT_DATA_TYPE *label_total,
                         IDX_DATA_TYPE *subset_indices, 
-                        float *imp_left, 
-                        float *imp_right, 
+                        float *imp_min, 
                         COUNT_DATA_TYPE *split,
                         uint16_t *min_feature_idx,
                         int max_features,
@@ -123,15 +122,11 @@ __global__ void compute(
   } 
   
   if(threadIdx.x == 0){
-    imp_left[blockIdx.x] = reg_min_left;
-    imp_right[blockIdx.x] = reg_min_right;
+    imp_min[2 * blockIdx.x] = reg_min_left;
+    imp_min[2 * blockIdx.x + 1] = reg_min_right;
     split[blockIdx.x] = reg_min_split;
     min_feature_idx[blockIdx.x] = reg_min_fidx;
   }
-  /*
-  if(blockIdx.x == 0 && threadIdx.x == 0)
-    printf("cuda: %%f %%d %%d\n", reg_min_left + reg_min_right, reg_min_fidx, reg_min_split - shared_start_idx);
-  */
 }
 
 

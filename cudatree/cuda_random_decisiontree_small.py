@@ -10,7 +10,7 @@ from util import mk_kernel, mk_tex_kernel, timer, dtype_to_ctype, get_best_dtype
 from node import Node
 from cuda_random_base_tree import RandomBaseTree
 from collections import deque
-import time
+import util
 
 class RandomDecisionTreeSmall(RandomBaseTree): 
   def __init__(self, samples_gpu, labels_gpu, sorted_indices, compt_table, dtype_labels, dtype_samples, 
@@ -48,15 +48,15 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.scan_total_kernel = mk_kernel((n_threads, n_labels, ctype_labels, ctype_counts, ctype_indices), 
         "count_total", "scan_kernel_total_si.cu") 
     
-    self.comput_total_kernel = mk_kernel((n_threads, n_labels, ctype_samples, ctype_labels, 
-      ctype_counts, ctype_indices), "compute", "comput_kernel_total_rand.cu")
+    #self.comput_total_kernel = mk_kernel((n_threads, n_labels, ctype_samples, ctype_labels, 
+    #  ctype_counts, ctype_indices), "compute", "comput_kernel_total_rand.cu")
      
     self.scan_reshuffle_tex, tex_ref = mk_tex_kernel((ctype_indices, n_shf_threads), 
         "scan_reshuffle", "tex_mark", "pos_scan_reshuffle_si_c_tex.cu")   
     self.mark_table.bind_to_texref_ext(tex_ref) 
     
-    self.comput_label_loop_kernel = mk_kernel((n_threads, n_labels, ctype_samples, 
-      ctype_labels, ctype_counts, ctype_indices), "compute",  "comput_kernel_label_loop_si.cu") 
+    #self.comput_label_loop_kernel = mk_kernel((n_threads, n_labels, ctype_samples, 
+    #  ctype_labels, ctype_counts, ctype_indices), "compute",  "comput_kernel_label_loop_si.cu") 
     
     self.comput_label_loop_rand_kernel = mk_kernel((n_threads, n_labels, ctype_samples, 
       ctype_labels, ctype_counts, ctype_indices), "compute",  "comput_kernel_label_loop_rand.cu") 
@@ -80,13 +80,13 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.fill_kernel.prepare("PiiPi")
     self.scan_reshuffle_tex.prepare("PPPiii") 
     self.scan_total_kernel.prepare("PPPi")
-    self.comput_total_kernel.prepare("PPPPPPPPii")
-    self.comput_label_loop_kernel.prepare("PPPPPPPii")
+    #self.comput_total_kernel.prepare("PPPPPPPPii")
+    #self.comput_label_loop_kernel.prepare("PPPPPPPii")
     self.comput_label_loop_rand_kernel.prepare("PPPPPPPPii")
     self.find_min_kernel.prepare("PPPi")
     self.predict_kernel.prepare("PPPPPPPii")
     self.scan_total_bfs.prepare("PPPPPPPi")
-    self.comput_bfs.prepare("PPPPPPPPPPPPii")
+    self.comput_bfs.prepare("PPPPPPPPPPPii")
     self.fill_bfs.prepare("PPPPPPPi")
     self.reshuffle_bfs.prepare("PPPPPPPii")
 
@@ -135,8 +135,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     min_feature_idx_gpu = gpuarray.empty(queue_size, dtype = np.uint16)
     
     self.label_total = gpuarray.empty(queue_size * self.n_labels, dtype = self.dtype_counts)  
-    self.impurity_left = gpuarray.empty(queue_size, dtype = np.float32)
-    self.impurity_right = gpuarray.empty(queue_size, dtype = np.float32)
+    impurity_gpu = gpuarray.empty(queue_size * 2, dtype = np.float32)
     self.min_split = gpuarray.empty(queue_size, dtype = self.dtype_indices)
 
     if len(self.mark_table.shape) == 1:
@@ -152,7 +151,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
             si_idx_array_gpu.ptr,
             idx_array_gpu.ptr,
             subset_indices_array_gpu.ptr,
-            self.max_features) 
+            self.max_features)
     
     self.comput_bfs.prepared_call(
           (queue_size, 1),
@@ -165,13 +164,17 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           si_idx_array_gpu.ptr,
           self.label_total.ptr,
           subset_indices_array_gpu.ptr,
-          self.impurity_left.ptr,
-          self.impurity_right.ptr,
+          impurity_gpu.ptr,
           self.min_split.ptr,
           min_feature_idx_gpu.ptr,
           self.max_features,
           self.stride)
     
+    min_split = self.min_split.get()
+    imp_min = impurity_gpu.get()
+    feature_idx = min_feature_idx_gpu.get()
+    begin_end_idx = idx_array
+
     self.fill_bfs.prepared_call(
           (queue_size, 1),
           (32, 1, 1),
@@ -183,7 +186,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.min_split.ptr,
           self.mark_table.ptr,
           self.stride)
-   
+     
     self.reshuffle_bfs.prepared_call(
           (queue_size, 16),
           (32, 1, 1),
@@ -197,11 +200,19 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.n_features,
           self.stride)
     
-    begin_end_idx = idx_array_gpu.get()
-    imp_left = self.impurity_left.get()
-    imp_right = self.impurity_right.get()
-    min_split = self.min_split.get()
-    feature_idx = min_feature_idx_gpu.get()
+    """ While the GPU is being utilized, run some CPU intensive code on CPU"""
+    for i, node in enumerate(self.queue):
+      si_id = 1 - node.si_idx 
+      node.left_child = Node()
+      node.right_child = Node()
+      node.left_child.depth = node.depth + 1
+      node.right_child.depth = node.depth + 1
+      node.left_child.si_idx = si_id
+      node.right_child.si_idx = si_id
+      if imp_min[2 * i] != 0.0:
+        node.left_child.subset_indices = self.get_indices()
+      if imp_min[2 * i + 1] != 0.0:
+        node.right_child.subset_indices = self.get_indices()
 
     for i in xrange(queue_size):
       node = self.queue.popleft()
@@ -214,59 +225,58 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
       row = node.feature_index
       col = min_split[i]
-      left_imp = imp_left[i]
-      right_imp = imp_right[i]
+      left_imp = imp_min[2 * i]
+      right_imp = imp_min[2 * i + 1]
 
       cuda.memcpy_dtoh(self.threshold_value_idx, si.ptr +  
           int(row * self.stride + col) * int(self.dtype_indices.itemsize))
       node.feature_threshold = (row, self.threshold_value_idx[0], self.threshold_value_idx[1])
      
       if left_imp + right_imp == 4.0:
+        node.left_child = None
+        node.right_child = None
         self.__record_leaf(node, node.start_idx, node.stop_idx - node.start_idx, si)
         continue
        
-      left_node =  Node()
-      right_node = Node()
+      left_node =  node.left_child
+      right_node = node.right_child
       
-      left_node.depth = node.depth + 1
       left_node.nid = self.n_nodes 
       node.left_nid = left_node.nid
       self.n_nodes += 1  
       
-      right_node.depth = left_node.depth
       right_node.nid = self.n_nodes
       node.right_nid = right_node.nid
       self.n_nodes += 1
-      si_id = 1 - node.si_idx
-      
+       
       if left_imp != 0.0:
         n_samples_left = col + 1 - node.start_idx 
         if n_samples_left < self.min_samples_split or (self.max_depth is not None and left_node.depth >= self.max_depth):
+          left_node.subset_indices = None
           self.__record_leaf(left_node, node.start_idx, n_samples_left, si)
         else:
           left_node.start_idx = node.start_idx
           left_node.stop_idx = col + 1
-          left_node.si_idx = si_id
-          left_node.subset_indices = self.get_indices()  
           self.queue.append(left_node)
       else:
         cuda.memcpy_dtoh(self.target_value_idx, si.ptr + int(node.start_idx * self.dtype_indices.itemsize))
+        left_node.subset_indices = None
         left_node.value = self.target_value_idx[0]
 
       if right_imp != 0.0:
         n_samples_right = node.stop_idx - col - 1
         if n_samples_right < self.min_samples_split or (self.max_depth is not None and right_node.depth >= self.max_depth):
+          right_node.subset_indices = None
           self.__record_leaf(right_node, col + 1, n_samples_right, si)
         else:
           right_node.start_idx = col + 1
           right_node.stop_idx = node.stop_idx
-          right_node.si_idx = si_id
-          right_node.subset_indices = self.get_indices()
           self.queue.append(right_node)
       else:
-        cuda.memcpy_dtoh(self.target_value_idx, si.ptr + int((col + 1) * self.dtype_indices.itemsize))
-        
+        cuda.memcpy_dtoh(self.target_value_idx, si.ptr + int((col + 1) * self.dtype_indices.itemsize)) 
+        right_node.subset_indices = None
         right_node.value = self.target_value_idx[0]   
+
       node.left_child = left_node
       node.right_child = right_node
 
@@ -298,7 +308,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.__bfs_construct() 
     self.__release_gpuarrays()
     self.gpu_decorate_nodes(samples, target)
- 
+
   def __record_leaf(self, ret_node, start_idx, n_samples, si):
       """ Pick the indices to record on the leaf node. In decoration step, we'll choose the most common label """
       if n_samples < 3:
