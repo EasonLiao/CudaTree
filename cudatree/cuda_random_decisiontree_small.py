@@ -45,7 +45,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     n_shf_threads = self.RESHUFFLE_THREADS_PER_BLOCK
     
     self.fill_kernel = mk_kernel((ctype_indices,), "fill_table", "fill_table_si.cu") 
-    self.scan_total_kernel = mk_kernel((n_threads, n_labels, ctype_labels, ctype_counts, ctype_indices), 
+    self.scan_total_kernel = mk_kernel((64, n_labels, ctype_labels, ctype_counts, ctype_indices), 
         "count_total", "scan_kernel_total_si.cu") 
     
     #self.comput_total_kernel = mk_kernel((n_threads, n_labels, ctype_samples, ctype_labels, 
@@ -435,7 +435,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                       si_gpu_in.ptr + row * self.stride * self.dtype_indices.itemsize + indices_offset, 
                       n_samples, 
                       col, 
-                      self.mark_table.gpudata, 
+                      self.mark_table.ptr, 
                       self.stride)
        
     if n_samples >= self.RESHUFFLE_THREADS_PER_BLOCK:

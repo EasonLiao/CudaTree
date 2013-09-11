@@ -24,7 +24,7 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
                         int n_samples, 
                         int stride){
 
-  int offset = subset_indices[blockIdx.x] * stride;
+  uint32_t offset = subset_indices[blockIdx.x] * stride;
   float reg_imp_right;
   float reg_imp_left;
   float reg_min_imp_left = 2.0;
@@ -32,10 +32,10 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
   COUNT_DATA_TYPE reg_min_split = 0;
   LABEL_DATA_TYPE cur_label;
   uint8_t skip;
-  int n;
+  uint16_t n;
   uint32_t left_count;
   uint32_t right_count;
-  uint32_t pos;
+  IDX_DATA_TYPE pos;
   IDX_DATA_TYPE cur_idx;
 
   __shared__ uint16_t min_thread_index;
@@ -45,7 +45,7 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
   __shared__ float shared_imp_total[THREADS_PER_BLOCK];  
   __shared__ uint8_t shared_pos[THREADS_PER_BLOCK];
 
-  for(int i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x){   
+  for(uint16_t i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x){   
       shared_count[i] = 0;
       shared_count_total[i] = label_total[i];
   }
@@ -53,7 +53,7 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
   
   shared_imp_total[threadIdx.x] = 4.0;
 
-  for(int i = 0; i < n_samples - 1; i += blockDim.x){
+  for(IDX_DATA_TYPE i = 0; i < n_samples - 1; i += blockDim.x){
     pos = i + threadIdx.x;
     cur_idx = (pos < n_samples - 1)? sorted_indices[offset + pos] : 0;
     cur_label = labels[cur_idx];
@@ -65,7 +65,7 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
     __syncthreads();
 
     if(threadIdx.x == blockDim.x - 1){
-      int next_pos;
+      IDX_DATA_TYPE next_pos;
       next_pos = (pos < n_samples - 1)? pos + 1 : n_samples - 1;
       shared_samples[threadIdx.x + next_pos - pos] = samples[offset + sorted_indices[offset + next_pos]];
     } 
@@ -75,13 +75,13 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
     if(pos >= n_samples - 1 || shared_samples[threadIdx.x] == shared_samples[threadIdx.x + 1])
       skip = 1;
   
-    for(int l = 0; l < MAX_NUM_LABELS; ++l){
+    for(uint16_t l = 0; l < MAX_NUM_LABELS; ++l){
       shared_pos[threadIdx.x] = (l == cur_label)? 1:0; 
       
       //Prefix scan.
       __syncthreads(); 
 
-      for(int s = 1; s < blockDim.x; s*= 2){
+      for(uint16_t s = 1; s < blockDim.x; s*= 2){
         if(threadIdx.x >= s) 
           n = shared_pos[threadIdx.x - s];
         else 
@@ -94,11 +94,9 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
       }
      
       if(skip == 0){
-        int total = shared_pos[threadIdx.x] + shared_count[l];
+        uint32_t total = shared_pos[threadIdx.x] + shared_count[l];
         left_count += d_square(total);
         right_count += d_square(shared_count_total[l] - total);
-        //right_count += d_square(label_total[l] - total);
-        //right_count += d_square(tex1Dfetch(tex_label_total, l) - total);
       }
       __syncthreads();
 
@@ -126,7 +124,7 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
   if(threadIdx.x == 0){
     min_thread_index = 0;
     float imp_min = 4.0;
-    for(int i = 0; i < blockDim.x; ++i)
+    for(uint16_t i = 0; i < blockDim.x; ++i)
       if(imp_min > shared_imp_total[i]){
         imp_min = shared_imp_total[i];
         min_thread_index = i;

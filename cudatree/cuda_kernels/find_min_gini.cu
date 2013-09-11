@@ -20,7 +20,7 @@ __global__ void find_min_imp(
   reg_imp_left = 2.0;
   reg_imp_right = 2.0;
 
-  for(int i = threadIdx.x; i < max_features; i += blockDim.x){
+  for(uint16_t i = threadIdx.x; i < max_features; i += blockDim.x){
     float left = imp_left[i]; 
     float right = imp_right[i]; 
     COUNT_DATA_TYPE idx = min_split[i];
@@ -40,7 +40,7 @@ __global__ void find_min_imp(
   
   if(threadIdx.x == 0){
     float min_imp = 4.0;
-    for(int i = 0; i < blockDim.x; ++i)
+    for(uint16_t i = 0; i < blockDim.x; ++i)
       if(shared_imp_total[i] < min_imp){
         min_tid = i;
         min_imp = shared_imp_total[i];

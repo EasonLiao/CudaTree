@@ -13,10 +13,10 @@ __global__ void scan_reshuffle(uint8_t* mark_table,
                           int split_idx,
                           int stride
                           ){  
-  int indices_offset = blockIdx.x * stride;
-  int reg_pos = 0;
-  int out_pos;
-  int right_pos = indices_offset + split_idx + 1;
+  uint32_t indices_offset = blockIdx.x * stride;
+  IDX_DATA_TYPE reg_pos = 0;
+  uint32_t out_pos;
+  uint32_t right_pos = indices_offset + split_idx + 1;
   uint8_t side;
   int n;
 
@@ -27,7 +27,7 @@ __global__ void scan_reshuffle(uint8_t* mark_table,
   if(threadIdx.x == 0)
     last_sum = 0;
   
-  for(int i = threadIdx.x; i < n_samples; i += blockDim.x){
+  for(IDX_DATA_TYPE i = threadIdx.x; i < n_samples; i += blockDim.x){
     side = tex1Dfetch(tex_mark, sorted_indices[indices_offset + i]);//mark_table[sorted_indices[indices_offset + i]];
     reg_pos = side;
     
@@ -35,7 +35,7 @@ __global__ void scan_reshuffle(uint8_t* mark_table,
 
     __syncthreads();
      
-    for(int s = 1; s < blockDim.x; s *= 2){
+    for(uint16_t s = 1; s < blockDim.x; s *= 2){
       if(threadIdx.x >= s){
         n = shared_pos_table[threadIdx.x - s];
       }
