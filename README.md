@@ -16,7 +16,7 @@ the latest version of [scikits-learn](http://scikit-learn.org/stable/modules/tre
 
   x_train, y_train = load_data("digits")
   forest = RandomForestClassifier()
-  forest.fit(x_train, y_train)
+  forest.fit(x_train, y_train, n_trees=50, min_samples_split=20)
   forest.predict(x_train)
 ```
 
