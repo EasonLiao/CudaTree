@@ -108,13 +108,15 @@ class BaseTree(object):
         idx_tuple = node.feature_threshold
         node.feature_threshold = (float(samples[idx_tuple[0], idx_tuple[1]]) + samples[idx_tuple[0], idx_tuple[2]]) / 2
         
-        self.left_child_array[node.nid] = node.left_nid
-        self.right_child_array[node.nid] = node.right_nid
+        self.left_child_array[node.nid] = node.left_child.nid
+        self.right_child_array[node.nid] = node.right_child.nid
         self.threshold_array[node.nid] = node.feature_threshold
         self.feature_array[node.nid] = node.feature_index
 
         recursive_decorate(node.left_child)
         recursive_decorate(node.right_child)
+        node.left_child = None
+        node.right_child = None
       else:
         if isinstance(node.value, np.ndarray):
           res = labels[node.value]
@@ -132,3 +134,4 @@ class BaseTree(object):
 
     assert self.root != None
     recursive_decorate(self.root)
+    self.root = None

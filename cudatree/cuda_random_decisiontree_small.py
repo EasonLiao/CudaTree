@@ -45,7 +45,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     n_shf_threads = self.RESHUFFLE_THREADS_PER_BLOCK
     
     self.fill_kernel = mk_kernel((ctype_indices,), "fill_table", "fill_table_si.cu") 
-    self.scan_total_kernel = mk_kernel((64, n_labels, ctype_labels, ctype_counts, ctype_indices), 
+    self.scan_total_kernel = mk_kernel((n_threads, n_labels, ctype_labels, ctype_counts, ctype_indices), 
         "count_total", "scan_kernel_total_si.cu") 
     
     #self.comput_total_kernel = mk_kernel((n_threads, n_labels, ctype_samples, ctype_labels, 
@@ -111,6 +111,15 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.subset_indices = None
     self.sorted_indices_gpu = None
     self.sorted_indices_gpu_ = None
+    self.fill_kernel = None
+    self.scan_reshuffle_tex = None 
+    self.scan_total_kernel = None
+    self.comput_label_loop_rand_kernel = None
+    self.find_min_kernel = None
+    self.scan_total_bfs = None
+    self.comput_bfs = None
+    self.fill_bfs = None
+    self.reshuffle_bfs = None
   
   def __bfs_construct(self):
     while len(self.queue):
@@ -128,6 +137,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       idx_array[i * 2 + 1] = node.stop_idx
       si_idx_array[i] = node.si_idx
       subset_indices_array[i * self.max_features : (i + 1) * self.max_features] = node.subset_indices  
+      node.subset_indices = None
 
     idx_array_gpu = gpuarray.to_gpu(idx_array)
     si_idx_array_gpu = gpuarray.to_gpu(si_idx_array)
@@ -242,11 +252,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       right_node = node.right_child
       
       left_node.nid = self.n_nodes 
-      node.left_nid = left_node.nid
       self.n_nodes += 1  
       
       right_node.nid = self.n_nodes
-      node.right_nid = right_node.nid
       self.n_nodes += 1
        
       if left_imp != 0.0:
@@ -331,11 +339,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     indices_offset =  start_idx * self.dtype_indices.itemsize
  
     ret_node = Node()
-    ret_node.error = error_rate
-    ret_node.samples = n_samples 
-    ret_node.height = depth 
+    ret_node.depth = depth 
     ret_node.nid = self.n_nodes
-    ret_node.depth = depth
 
     self.n_nodes += 1
 
@@ -453,11 +458,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                       col,
                       self.stride) 
 
-    ret_node.left_nid = self.n_nodes
     ret_node.left_child = self.__dfs_construct(depth + 1, min_left, 
         start_idx, start_idx + col + 1, si_gpu_out, si_gpu_in, subset_indices_left)
     
-    ret_node.right_nid = self.n_nodes
     ret_node.right_child = self.__dfs_construct(depth + 1, min_right, 
         start_idx + col + 1, stop_idx, si_gpu_out, si_gpu_in, subset_indices_right)
     return ret_node 
