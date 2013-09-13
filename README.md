@@ -29,6 +29,16 @@ CudaTree is writen for Python 2.7 and depends on:
 * [PyCUDA](http://documen.tician.de/pycuda/#)
 * [Nose](https://nose.readthedocs.org/en/latest/)
 
+
+### Limitations:
+* CudaTree needs GPU memory 1 - 3 times larger than the size of training data, so make sure you have enough GPU memory.
+* The maximum number of features allowed is 65536.
+* The maximum number of categories allowed is 10000(However, CudaTree performs well only when the number of categories is small(<=100)).
+* The compute ability of your GPU should >= 2.0.
+* The performance gain is about 1.5X ~ 2X faster than Scikits-learn. The exact number depends on how powerful your GPU is and what your training data looks like. 
+
+
+
 ### Implementation Details 
 
 Trees are first constructed in depth-first order, with a separate kernel launch for each node's subset of the data. 
