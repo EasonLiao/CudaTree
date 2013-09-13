@@ -36,7 +36,8 @@ CudaTree is writen for Python 2.7 and depends on:
 
 <!-- 
 \mathrm{GPU}\;\mathrm{memory}\;\mathrm{in}\;\mathrm{bytes} = \mathit{DatasetSize} + 2\cdot \mathit{Samples} \cdot \mathit{Features} \cdot \left\lceil \frac{\log_2 \mathit{Samples}}{8} \right\rceil + \mathit{Features} \cdot \mathit{Samples}
---> 
+-->
+![gpu memory](https://github.com/EasonLiao/CudaTree/doc/gpumem.png)
   <b>GPUMem = bytes of training data + 2 * n_features * n_samples * n_bytes_per_idx + n_features * n_samples</b>
     
   <i>(n_bytes_per_idx is 1 when the number of samples <= 256
