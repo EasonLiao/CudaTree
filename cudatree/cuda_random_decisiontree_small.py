@@ -10,7 +10,6 @@ from util import mk_kernel, mk_tex_kernel, timer, dtype_to_ctype, get_best_dtype
 from node import Node
 from cuda_random_base_tree import RandomBaseTree
 from collections import deque
-import util
 
 class RandomDecisionTreeSmall(RandomBaseTree): 
   def __init__(self, samples_gpu, labels_gpu, sorted_indices, compt_table, dtype_labels, dtype_samples, 
@@ -198,7 +197,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.stride)
      
     self.reshuffle_bfs.prepared_call(
-          (queue_size, 16),
+          (queue_size, 128),
           (32, 1, 1),
           self.mark_table.ptr,
           si_idx_array_gpu.ptr,
@@ -311,6 +310,14 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     assert self.sorted_indices_gpu.strides[0] == target.size * self.sorted_indices_gpu.dtype.itemsize 
     assert self.samples_gpu.strides[0] == target.size * self.samples_gpu.dtype.itemsize   
     
+    self.samples = samples
+    self.target = target
+    self.left_children = np.zeros(self.stride * 2, dtype = self.dtype_indices)
+    self.right_children = np.zeros(self.stride * 2, dtype = self.dtype_indices)
+    self.feature_idx_array = np.zeros(2 *self.stride, dtype = np.uint16)
+    self.feature_threshold_array = np.zeros(2 * self.stride, dtype = np.float32)
+    self.values_array = np.zeros(2 * self.stride, dtype = self.dtype_labels)
+
     self.n_nodes = 0 
     self.root = self.__dfs_construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_, self.get_indices())  
     self.__bfs_construct() 
@@ -326,6 +333,16 @@ class RandomDecisionTreeSmall(RandomBaseTree):
         si_labels = np.empty(n_samples, dtype=self.dtype_indices)
         cuda.memcpy_dtoh(si_labels, si.ptr + int(start_idx * self.dtype_indices.itemsize))
         ret_node.value = si_labels
+  
+  def __turn_to_leaf(self, nid, start_idx, n_samples, si):
+      """ Pick the indices to record on the leaf node. In decoration step, we'll choose the most common label """
+      if n_samples < 3:
+        cuda.memcpy_dtoh(self.target_value_idx, si.ptr + int(start_idx * self.dtype_indices.itemsize))
+        self.values_array[nid] = self.target[self.target_value_idx[0]]
+      else:
+        si_labels = np.empty(n_samples, dtype=self.dtype_indices)
+        cuda.memcpy_dtoh(si_labels, si.ptr + int(start_idx * self.dtype_indices.itemsize))
+        self.values_array[nid]  = self.__find_most_common(self.targetp[si_labels])
 
 
   def __dfs_construct(self, depth, error_rate, start_idx, stop_idx, si_gpu_in, si_gpu_out, subset_indices):
@@ -337,39 +354,39 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
     n_samples = stop_idx - start_idx
     indices_offset =  start_idx * self.dtype_indices.itemsize
- 
-    ret_node = Node()
-    ret_node.depth = depth 
-    ret_node.nid = self.n_nodes
+    
+
+    nid = self.n_nodes
 
     self.n_nodes += 1
 
     if check_terminate():
       cuda.memcpy_dtoh(self.target_value_idx, si_gpu_in.ptr + int(start_idx * self.dtype_indices.itemsize))
-      ret_node.value = self.target_value_idx[0] 
-      return ret_node
+      #ret_node.value = self.target_value_idx[0] 
+      self.values_array[nid] = self.target[self.target_value_idx[0]]
+      return
     
     if n_samples < self.min_samples_split or (self.max_depth is not None and depth >= self.max_depth):
+      return
       self.__record_leaf(ret_node, start_idx, n_samples, si_gpu_in)
       return ret_node
     
-    if n_samples <= 64:
+    if n_samples <= 1:
+      pass
+      """
+      print "!"
       ret_node.start_idx = start_idx
       ret_node.stop_idx = stop_idx
       ret_node.si_idx = si_gpu_in.idx
       ret_node.subset_indices = subset_indices
       self.queue.append(ret_node)
       return ret_node 
-    
+      """
 
+    block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
     cuda.memcpy_htod(self.subset_indices.ptr, subset_indices)
     grid = (self.max_features, 1) 
     
-    if n_samples >= self.COMPT_THREADS_PER_BLOCK:
-      block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
-    else:
-      block = (32, 1, 1)
-     
     self.scan_total_kernel.prepared_call(
                 (1, 1),
                 block,
@@ -420,19 +437,23 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     cuda.memcpy_dtoh(self.min_imp_info, self.impurity_left.ptr)
     min_right = self.min_imp_info[1] 
     min_left = self.min_imp_info[0] 
-    
+   
     if min_left + min_right == 4:
-      self.__record_leaf(ret_node, start_idx, n_samples, si_gpu_in)
-      return ret_node
+      self.__turn_to_leaf(nid, start_idx, n_samples, si_gpu_in) 
+      return
      
     col = int(self.min_imp_info[2]) 
     row = int(self.min_imp_info[3])
     row = subset_indices[row]
-    ret_node.feature_index = row
-    
+    #ret_node.feature_index = row
+   
+
     cuda.memcpy_dtoh(self.threshold_value_idx, si_gpu_in.ptr + int(indices_offset) + 
         int(row * self.stride + col) * int(self.dtype_indices.itemsize))
-    ret_node.feature_threshold = (row, self.threshold_value_idx[0], self.threshold_value_idx[1])
+    #ret_node.feature_threshold = (row, self.threshold_value_idx[0], self.threshold_value_idx[1])
+    
+    self.feature_idx_array[nid] = row
+    self.feature_threshold_array[nid] = (float(self.samples[row, self.threshold_value_idx[0]]) + self.samples[row, self.threshold_value_idx[1]]) / 2
    
     self.fill_kernel.prepared_call(
                       (1, 1),
@@ -443,10 +464,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                       self.mark_table.ptr, 
                       self.stride)
        
-    if n_samples >= self.RESHUFFLE_THREADS_PER_BLOCK:
-      block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
-    else:
-      block = (32, 1, 1)
+    block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
 
     self.scan_reshuffle_tex.prepared_call(
                       (self.n_features, 1),
@@ -458,10 +476,11 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                       col,
                       self.stride) 
 
-    ret_node.left_child = self.__dfs_construct(depth + 1, min_left, 
+    self.left_children[nid] = self.n_nodes
+    self.__dfs_construct(depth + 1, min_left, 
         start_idx, start_idx + col + 1, si_gpu_out, si_gpu_in, subset_indices_left)
     
-    ret_node.right_child = self.__dfs_construct(depth + 1, min_right, 
+    self.right_children[nid] = self.n_nodes
+    self.__dfs_construct(depth + 1, min_right, 
         start_idx + col + 1, stop_idx, si_gpu_out, si_gpu_in, subset_indices_right)
-    return ret_node 
 

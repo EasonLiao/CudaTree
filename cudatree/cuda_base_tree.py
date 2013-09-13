@@ -125,13 +125,28 @@ class BaseTree(object):
           idx = node.value
           node.value = labels[idx]
           self.value_array[node.nid] = node.value
-
+    
     self.left_child_array = np.zeros(self.n_nodes, self.dtype_indices)
     self.right_child_array = np.zeros(self.n_nodes, self.dtype_indices)
     self.threshold_array = np.zeros(self.n_nodes, np.float32)
     self.value_array = np.zeros(self.n_nodes, self.dtype_labels) 
     self.feature_array = np.zeros(self.n_nodes, np.uint16)
-
+    
+    """
     assert self.root != None
     recursive_decorate(self.root)
+    """
+    """
+    print np.all(self.left_children[0:self.n_nodes] == self.left_child_array)
+    print np.all(self.right_children[0:self.n_nodes] == self.right_child_array)
+    print np.all(self.feature_idx_array[0:self.n_nodes] == self.feature_array)
+    print np.all(self.feature_threshold_array[0:self.n_nodes] == self.threshold_array)
+    print np.all(self.values_array[0:self.n_nodes] == self.value_array)
+    """
+
+    self.left_child_array = self.left_children
+    self.right_child_array = self.right_children
+    self.feature_array = self.feature_idx_array
+    self.value_array = self.values_array
+    self.threshold_array = self.feature_threshold_array
     self.root = None
