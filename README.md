@@ -31,7 +31,12 @@ CudaTree is writen for Python 2.7 and depends on:
 
 
 ### Limitations:
-* CudaTree needs GPU memory 1 - 3 times larger than the size of training data, so make sure you have enough GPU memory.
+* CudaTree needs GPU memory more than the size of training data, so make sure you have enough GPU memory.
+* Specifically:
+  
+  GPU_mem_need = Size of traning data + 2 * n_features * n_samples * n_bytes_idx_element + n_features * n_samples
+  
+
 * The maximum number of features allowed is 65536.
 * The maximum number of categories allowed is 10000(However, CudaTree performs well only when the number of categories is small(<=100)).
 * The compute ability of your GPU should >= 2.0.
