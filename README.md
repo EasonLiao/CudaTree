@@ -68,7 +68,8 @@ In addition to memory requirement, there are several other limitations hard-code
 
 * The maximum number of features allowed is 65,536.
 * The maximum number of categories allowed is 10000 (CudaTree performs best when the number of categories is <=100).
-* The compute ability of your NVIDIA GPU should >= 2.0.
+* Your NVIDIA GPU must have compute capability >= 2.0.
+* Currently, the only splitting criterion is GINI impurity, which means CudaTree can't yet do regression (splitting by variance for continuous outputs is planned)
 
 The performance gain over scikits-learn is typically about 1.5X ~ 2X, though the exact number depends on how powerful your GPU is and what your training data looks like. 
 
