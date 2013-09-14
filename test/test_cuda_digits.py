@@ -13,3 +13,4 @@ def test_digits():
     diff, total = util.test_diff(forest.predict(x_test), y_test)  
     print "%s(Wrong)/%s(Total). The error rate is %f." % (diff, total, diff/float(total))
   assert diff == 0
+

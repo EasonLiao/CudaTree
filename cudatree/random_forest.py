@@ -99,6 +99,7 @@ class RandomForestClassifier(object):
       with timer("Tree %s" % (i,)):
         tree.fit(samples, target)
 
+
   def predict(self, x):
     """Predict labels for giving samples.
 
