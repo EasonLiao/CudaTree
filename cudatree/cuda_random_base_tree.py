@@ -9,6 +9,7 @@ class RandomBaseTree(BaseTree):
     self.dtype_indices = None
 
   def get_indices(self):
+    #return np.arange(self.max_features, dtype=self.dtype_indices)
     if self.max_features < self.n_features / 2:
       return np.array(random.sample(xrange(self.n_features), self.max_features), dtype=self.dtype_indices)
     else:

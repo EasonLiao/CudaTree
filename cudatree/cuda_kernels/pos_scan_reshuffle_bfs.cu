@@ -13,7 +13,7 @@ __global__ void scan_reshuffle(
                           IDX_DATA_TYPE* split,
                           uint16_t* feature_idx,
                           uint16_t n_features,
-                          int stride
+                          uint32_t stride
                           ){  
   __shared__ IDX_DATA_TYPE last_sum;
   __shared__ IDX_DATA_TYPE shared_pos_table[THREADS_PER_BLOCK];
@@ -21,9 +21,8 @@ __global__ void scan_reshuffle(
   IDX_DATA_TYPE reg_start_idx = begin_end_idx[2 * blockIdx.x];
   IDX_DATA_TYPE reg_stop_idx = begin_end_idx[2 * blockIdx.x + 1];
   IDX_DATA_TYPE reg_split_idx = split[blockIdx.x];
-  int n;
-
-  
+  IDX_DATA_TYPE n;
+ 
   IDX_DATA_TYPE *p_sorted_indices_in;
   IDX_DATA_TYPE *p_sorted_indices_out;
 
@@ -36,18 +35,23 @@ __global__ void scan_reshuffle(
   }
 
   for(uint16_t shuffle_feature_idx = blockIdx.y; shuffle_feature_idx < n_features; shuffle_feature_idx += gridDim.y){
-    int offset = shuffle_feature_idx * stride;
+    uint32_t offset = shuffle_feature_idx * stride;
 
     if(threadIdx.x == 0)
       last_sum = 0;
 
-    for(int i = threadIdx.x + reg_start_idx; i < reg_stop_idx; i += blockDim.x){
-      uint8_t side = mark_table[feature_table_idx * stride + p_sorted_indices_in[offset + i]];
+    for(IDX_DATA_TYPE i = reg_start_idx; i < reg_stop_idx; i += blockDim.x){
+      uint8_t side;
+      IDX_DATA_TYPE idx = i + threadIdx.x;
+
+      if(idx < reg_stop_idx)
+        side = mark_table[feature_table_idx * stride + p_sorted_indices_in[offset + idx]];
+      
       shared_pos_table[threadIdx.x] = side;
       
       __syncthreads();
 
-      for(int s = 1; s < blockDim.x; s *= 2){
+      for(uint16_t s = 1; s < blockDim.x; s *= 2){
         if(threadIdx.x >= s)
           n = shared_pos_table[threadIdx.x - s];
         else
@@ -57,17 +61,21 @@ __global__ void scan_reshuffle(
         __syncthreads();
       }
       
-      __syncthreads();
-
-      int reg_pos = shared_pos_table[threadIdx.x] + last_sum;
-      int out_pos = (side == 1)? reg_start_idx + reg_pos - 1 : reg_split_idx + 1 + i - reg_start_idx - reg_pos;
-      p_sorted_indices_out[offset + out_pos] = p_sorted_indices_in[offset + i];   
+      IDX_DATA_TYPE reg_pos;
       
+      if(i + threadIdx.x < reg_stop_idx){
+        reg_pos = shared_pos_table[threadIdx.x] + last_sum;
+        IDX_DATA_TYPE out_pos = (side == 1)? reg_start_idx + reg_pos - 1 : reg_split_idx + 1 + idx - reg_start_idx - reg_pos;
+        p_sorted_indices_out[offset + out_pos] = p_sorted_indices_in[offset + idx];   
+      }
+
       __syncthreads();
 
       if(threadIdx.x == blockDim.x - 1)
         last_sum = reg_pos;
     }
+
+    __syncthreads();
   }
 }
 

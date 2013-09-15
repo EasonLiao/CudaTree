@@ -177,9 +177,13 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.min_split.ptr,
           self.mark_table.ptr,
           self.stride)
-     
+    
+    block_per_split = int(math.ceil(float(5000) / self.queue_size))
+    if block_per_split > self.n_features:
+      block_per_split = self.n_features
+
     self.reshuffle_bfs.prepared_call(
-          (self.queue_size, 32),
+          (self.queue_size, block_per_split),
           (32, 1, 1),
           self.mark_table.ptr,
           si_idx_array_gpu.ptr,
@@ -195,11 +199,13 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     
     """ While the GPU is being utilized, run some CPU intensive code on CPU"""
     for i in xrange(self.queue_size):
-      left_imp = imp_min[2 * i]
-      right_imp = imp_min[2 * i + 1]
+      left_idx = 2 * i
+      right_idx = left_idx + 1
+      left_imp = imp_min[left_idx]
+      right_imp = imp_min[right_idx]
       col = min_split[i]
-      start_idx = self.idx_array[2 * i]
-      stop_idx = self.idx_array[2 * i + 1]
+      start_idx = self.idx_array[left_idx]
+      stop_idx = self.idx_array[right_idx]
       if left_imp + right_imp == 4.0:
         continue
       if left_imp != 0.0:
@@ -322,10 +328,11 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.__bfs_construct() 
     self.__release_gpuarrays()
     self.gpu_decorate_nodes(samples, target)
+    print self.n_nodes
 
   def __turn_to_leaf(self, nid, start_idx, n_samples, si):
       """ Pick the indices to record on the leaf node. In decoration step, we'll choose the most common label """
-      if n_samples < 3:
+      if n_samples < 5:
         cuda.memcpy_dtoh(self.target_value_idx, si.ptr + int(start_idx * self.dtype_indices.itemsize))
         self.values_array[nid] = self.target[self.target_value_idx[0]]
       else:
