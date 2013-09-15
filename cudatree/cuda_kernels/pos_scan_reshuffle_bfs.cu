@@ -15,12 +15,6 @@ __global__ void scan_reshuffle(
                           uint16_t n_features,
                           int stride
                           ){  
-  /*
-  if(blockIdx.x ==3 && blockIdx.y == 0)
-    printf("griddim.x:%%d griddim.y:%%d n_features: %%d, stride: %%d  %%d %%d %%d\n", 
-        gridDim.x, gridDim.y, n_features, stride, begin_end_idx[2 * blockIdx.x], split[blockIdx.x], begin_end_idx[2 * blockIdx.x + 1]);
-  */
-
   __shared__ IDX_DATA_TYPE last_sum;
   __shared__ IDX_DATA_TYPE shared_pos_table[THREADS_PER_BLOCK];
   uint16_t feature_table_idx = feature_idx[blockIdx.x];
@@ -51,19 +45,26 @@ __global__ void scan_reshuffle(
       uint8_t side = mark_table[feature_table_idx * stride + p_sorted_indices_in[offset + i]];
       shared_pos_table[threadIdx.x] = side;
       
+      __syncthreads();
+
       for(int s = 1; s < blockDim.x; s *= 2){
         if(threadIdx.x >= s)
           n = shared_pos_table[threadIdx.x - s];
         else
           n = 0;
-
+        __syncthreads();
         shared_pos_table[threadIdx.x] += n;
+        __syncthreads();
       }
       
+      __syncthreads();
+
       int reg_pos = shared_pos_table[threadIdx.x] + last_sum;
       int out_pos = (side == 1)? reg_start_idx + reg_pos - 1 : reg_split_idx + 1 + i - reg_start_idx - reg_pos;
       p_sorted_indices_out[offset + out_pos] = p_sorted_indices_in[offset + i];   
-    
+      
+      __syncthreads();
+
       if(threadIdx.x == blockDim.x - 1)
         last_sum = reg_pos;
     }

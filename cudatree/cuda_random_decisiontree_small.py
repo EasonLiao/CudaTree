@@ -1,14 +1,11 @@
 import pycuda.autoinit
 import pycuda.driver as cuda
 from pycuda import gpuarray
-from sklearn import tree
 import numpy as np
 import math
 from time import sleep
-import datasource
 from util import mk_kernel, mk_tex_kernel, timer, dtype_to_ctype, get_best_dtype, start_timer, end_timer
 from cuda_random_base_tree import RandomBaseTree
-from collections import deque
 
 class RandomDecisionTreeSmall(RandomBaseTree): 
   def __init__(self, samples_gpu, labels_gpu, sorted_indices, compt_table, dtype_labels, dtype_samples, 
@@ -203,10 +200,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       col = min_split[i]
       start_idx = self.idx_array[2 * i]
       stop_idx = self.idx_array[2 * i + 1]
-
       if left_imp + right_imp == 4.0:
         continue
-
       if left_imp != 0.0:
         self.subset_indices_array[new_queue_size * self.max_features : 
             (new_queue_size + 1) * self.max_features] = self.get_indices()
@@ -216,12 +211,12 @@ class RandomDecisionTreeSmall(RandomBaseTree):
             (new_queue_size + 1) * self.max_features] = self.get_indices()
         new_queue_size += 1
     
-
     queue_size = 0
     new_idx_array = np.empty(new_queue_size * 2, dtype = self.dtype_indices)
     new_si_idx_array = np.empty(new_queue_size, dtype = np.uint8)
     new_nid_array = np.empty(new_queue_size, dtype = self.dtype_indices)
     
+    """ Put the new request in queue"""
     for i in xrange(self.queue_size):
       if self.si_idx_array[i] == 1:
         si = self.sorted_indices_gpu
@@ -294,7 +289,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.target_value_idx = np.zeros(1, self.dtype_indices)
     self.threshold_value_idx = np.zeros(2, self.dtype_indices)
     self.min_imp_info = np.zeros(4, dtype = np.float32)  
-    self.queue = deque()
     
     if self.max_features is None:
       self.max_features = int(math.ceil(math.log(self.n_features, 2)))
@@ -338,6 +332,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
         si_labels = np.empty(n_samples, dtype=self.dtype_indices)
         cuda.memcpy_dtoh(si_labels, si.ptr + int(start_idx * self.dtype_indices.itemsize))
         self.values_array[nid]  = self._find_most_common_label(self.target[si_labels])
+
 
   def __dfs_construct(self, depth, error_rate, start_idx, stop_idx, si_gpu_in, si_gpu_out, subset_indices):
     def check_terminate():
@@ -443,7 +438,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     
     self.fill_kernel.prepared_call(
                       (1, 1),
-                      (1024, 1, 1),
+                      (512, 1, 1),
                       si_gpu_in.ptr + row * self.stride * self.dtype_indices.itemsize + indices_offset, 
                       n_samples, 
                       col, 

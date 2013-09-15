@@ -27,5 +27,3 @@ Building Decision Tree on Cuda.
                   'Intended Audience :: Developers',
                   'Programming Language :: Python :: 2.7',
                 ])
-
-

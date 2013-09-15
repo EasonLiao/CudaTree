@@ -14,7 +14,7 @@ class RandomForestClassifier(object):
     See RandomForestClassifier.fit
   """ 
   COMPT_THREADS_PER_BLOCK = 128
-  RESHUFFLE_THREADS_PER_BLOCK = 256
+  RESHUFFLE_THREADS_PER_BLOCK = 128
   
   def __compact_labels(self, target):
     def check_is_compacted(x):
@@ -98,7 +98,6 @@ class RandomForestClassifier(object):
     for i, tree in enumerate(self.forest):
       with timer("Tree %s" % (i,)):
         tree.fit(samples, target)
-
 
   def predict(self, x):
     """Predict labels for giving samples.
