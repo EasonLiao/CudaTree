@@ -19,11 +19,11 @@ __global__ void count_total(
   __shared__ LABEL_DATA_TYPE shared_labels[THREADS_PER_BLOCK]; 
   IDX_DATA_TYPE stop_pos;
   
-  for(int i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x)
+  for(uint16_t i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x)
     shared_count[i] = 0;
   
-  for(int i = 0; i < n_samples; i += blockDim.x){
-    int idx = i + threadIdx.x;
+  for(IDX_DATA_TYPE i = 0; i < n_samples; i += blockDim.x){
+    IDX_DATA_TYPE idx = i + threadIdx.x;
     if(idx < n_samples)
       shared_labels[threadIdx.x] = labels[sorted_indices[idx]];
     
@@ -32,13 +32,13 @@ __global__ void count_total(
     if(threadIdx.x == 0){
       stop_pos = (i + blockDim.x < n_samples)? blockDim.x : n_samples - i;
 
-      for(int t = 0; t < stop_pos; ++t)
+      for(IDX_DATA_TYPE t = 0; t < stop_pos; ++t)
         shared_count[shared_labels[t]]++;
     } 
 
     __syncthreads();
   }
   
-  for(int i =  threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x)
+  for(uint16_t i =  threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x)
     label_total[i] = shared_count[i];
 }

@@ -43,7 +43,7 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
   __shared__ float shared_imp_total[THREADS_PER_BLOCK];  
   __shared__ uint8_t shared_pos[THREADS_PER_BLOCK];
 
-  for(int i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x){   
+  for(uint16_t i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x){   
       shared_count[i] = 0;
       shared_count_total[i] = label_total[i];
   }

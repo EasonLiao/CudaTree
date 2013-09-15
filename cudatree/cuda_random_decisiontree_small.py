@@ -8,6 +8,8 @@ from util import mk_kernel, mk_tex_kernel, timer, dtype_to_ctype, get_best_dtype
 from cuda_random_base_tree import RandomBaseTree
 
 class RandomDecisionTreeSmall(RandomBaseTree): 
+  BFS_THREADS = 32
+  
   def __init__(self, samples_gpu, labels_gpu, sorted_indices, compt_table, dtype_labels, dtype_samples, 
       dtype_indices, dtype_counts, n_features, n_samples, n_labels, n_threads, n_shf_threads, max_features = None,
       max_depth = None, min_samples_split = None):
@@ -60,13 +62,13 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       
     self.predict_kernel = mk_kernel((ctype_indices, ctype_samples, ctype_labels), "predict", "predict.cu")
   
-    self.scan_total_bfs = mk_kernel((32, n_labels, ctype_labels, ctype_counts, ctype_indices), "count_total", "scan_kernel_total_bfs.cu")
+    self.scan_total_bfs = mk_kernel((self.BFS_THREADS, n_labels, ctype_labels, ctype_counts, ctype_indices), "count_total", "scan_kernel_total_bfs.cu")
   
-    self.comput_bfs = mk_kernel((32, n_labels, ctype_samples, ctype_labels, ctype_counts, ctype_indices), "compute", "comput_kernel_bfs.cu")
+    self.comput_bfs = mk_kernel((self.BFS_THREADS, n_labels, ctype_samples, ctype_labels, ctype_counts, ctype_indices), "compute", "comput_kernel_bfs.cu")
     
     self.fill_bfs = mk_kernel((ctype_indices,), "fill_table", "fill_table_bfs.cu")
     
-    self.reshuffle_bfs = mk_kernel((ctype_indices, 32), "scan_reshuffle", "pos_scan_reshuffle_bfs.cu")
+    self.reshuffle_bfs = mk_kernel((ctype_indices, self.BFS_THREADS), "scan_reshuffle", "pos_scan_reshuffle_bfs.cu")
     
     if hasattr(self.fill_kernel, "is_prepared"):
       return
@@ -135,7 +137,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     
     self.scan_total_bfs.prepared_call(
             (self.queue_size, 1),
-            (32, 1, 1),
+            (self.BFS_THREADS, 1, 1),
+            #(32, 1, 1),
             self.sorted_indices_gpu.ptr,
             self.sorted_indices_gpu_.ptr,
             self.labels_gpu.ptr,
@@ -147,7 +150,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     
     self.comput_bfs.prepared_call(
           (self.queue_size, 1),
-          (32, 1, 1),
+          #(32, 1, 1),
+          (self.BFS_THREADS, 1, 1),
           self.samples_gpu.ptr,
           self.labels_gpu.ptr,
           self.sorted_indices_gpu.ptr,
@@ -168,7 +172,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     
     self.fill_bfs.prepared_call(
           (self.queue_size, 1),
-          (32, 1, 1),
+          (self.BFS_THREADS, 1, 1),
+          #(32, 1, 1),
           self.sorted_indices_gpu.ptr,
           self.sorted_indices_gpu_.ptr,
           si_idx_array_gpu.ptr,
@@ -184,7 +189,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
     self.reshuffle_bfs.prepared_call(
           (self.queue_size, block_per_split),
-          (32, 1, 1),
+          (self.BFS_THREADS, 1, 1),
+          #(32, 1, 1),
           self.mark_table.ptr,
           si_idx_array_gpu.ptr,
           self.sorted_indices_gpu.ptr,
@@ -328,7 +334,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.__bfs_construct() 
     self.__release_gpuarrays()
     self.gpu_decorate_nodes(samples, target)
-    print self.n_nodes
 
   def __turn_to_leaf(self, nid, start_idx, n_samples, si):
       """ Pick the indices to record on the leaf node. In decoration step, we'll choose the most common label """
@@ -384,7 +389,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                 self.label_total.ptr,
                 n_samples)
     
-
     self.comput_label_loop_rand_kernel.prepared_call(
                 grid,
                 block,
@@ -415,7 +419,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
     subset_indices_left = self.get_indices()
     subset_indices_right = self.get_indices()
-    
 
     self.find_min_kernel.prepared_call(
                 (1, 1),
@@ -426,7 +429,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                 self.max_features)
     
     cuda.memcpy_dtoh(self.min_imp_info, self.impurity_left.ptr)
-
     min_right = self.min_imp_info[1] 
     min_left = self.min_imp_info[0] 
     
@@ -453,7 +455,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                       self.stride)
        
     block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
-    
     self.scan_reshuffle_tex.prepared_call(
                       (self.n_features, 1),
                       block,

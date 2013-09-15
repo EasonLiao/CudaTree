@@ -55,14 +55,14 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
   __shared__ SAMPLE_DATA_TYPE shared_samples[THREADS_PER_BLOCK];
   
 
-  for(int i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x){   
+  for(uint16_t i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x){   
       shared_count[i] = 0;
       shared_count_total[i] = label_total[i];
   }
   
   
-  for(int i = threadIdx.x; i < n_samples; i += blockDim.x){ 
-    int idx = sorted_indices[offset + i];
+  for(IDX_DATA_TYPE i = threadIdx.x; i < n_samples; i += blockDim.x){ 
+    IDX_DATA_TYPE idx = sorted_indices[offset + i];
     shared_labels[threadIdx.x] = labels[idx]; 
     shared_samples[threadIdx.x] = samples[offset + idx];
 
@@ -71,7 +71,7 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
     if(threadIdx.x == 0){
       stop_pos = (i + blockDim.x < n_samples - 1)? blockDim.x : n_samples - i - 1;
       
-        for(int t = 0; t < stop_pos; ++t){
+        for(IDX_DATA_TYPE t = 0; t < stop_pos; ++t){
           shared_count[shared_labels[t]]++;
                     
           if(t != stop_pos - 1){

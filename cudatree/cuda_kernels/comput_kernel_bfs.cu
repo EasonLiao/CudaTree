@@ -60,8 +60,7 @@ __global__ void compute(
   uint16_t reg_min_fidx = 0;
   IDX_DATA_TYPE reg_min_split = 0;
 
-
-  for(LABEL_DATA_TYPE i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x)
+  for(uint16_t i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x)
     shared_count_total[i] = label_total[blockIdx.x * MAX_NUM_LABELS + i];
  
   reg_start_idx = begin_stop_idx[2 * blockIdx.x];
@@ -75,7 +74,7 @@ __global__ void compute(
  
   for(uint16_t f = 0; f < max_features; ++f){
     //Reset shared_label_count array.
-    for(LABEL_DATA_TYPE t = threadIdx.x; t < MAX_NUM_LABELS; t += blockDim.x)
+    for(uint16_t t = threadIdx.x; t < MAX_NUM_LABELS; t += blockDim.x)
       shared_label_count[t] = 0;
     
     __syncthreads();
@@ -83,10 +82,14 @@ __global__ void compute(
     uint16_t feature_idx = subset_indices[blockIdx.x * max_features + f];
     uint32_t offset = feature_idx * stride;
 
-    for(IDX_DATA_TYPE i = reg_start_idx + threadIdx.x; i < reg_stop_idx - 1; i += blockDim.x){
-      shared_labels[threadIdx.x] = labels[p_sorted_indices[offset + i]];
-      shared_samples[threadIdx.x] = samples[offset + p_sorted_indices[offset + i]];
-      
+    for(IDX_DATA_TYPE i = reg_start_idx; i < reg_stop_idx - 1; i += blockDim.x){
+      IDX_DATA_TYPE idx = i + threadIdx.x;
+
+      if(idx < reg_stop_idx - 1){
+        shared_labels[threadIdx.x] = labels[p_sorted_indices[offset + idx]];
+        shared_samples[threadIdx.x] = samples[offset + p_sorted_indices[offset + idx]];
+      }
+
       __syncthreads();
 
       if(threadIdx.x == 0){

@@ -72,6 +72,9 @@ class RandomForestClassifier(object):
     self.n_labels = self.compt_table.size 
 
     self.dtype_indices = get_best_dtype(target.size)
+    if self.dtype_indices == np.dtype(np.uint8):
+      self.dtype_indices = np.dtype(np.uint16)
+
     self.dtype_counts = self.dtype_indices
     self.dtype_labels = get_best_dtype(self.n_labels)
     self.dtype_samples = samples.dtype
@@ -81,6 +84,12 @@ class RandomForestClassifier(object):
     self.n_features = samples.shape[0]
     self.n_samples = target.size
     
+    if self.COMPT_THREADS_PER_BLOCK > self.n_samples:
+      self.COMPT_THREADS_PER_BLOCK = 32
+    if self.RESHUFFLE_THREADS_PER_BLOCK > self.n_samples:
+      self.RESHUFFLE_THREADS_PER_BLOCK = 32
+
+
     samples_gpu = gpuarray.to_gpu(samples)
     labels_gpu = gpuarray.to_gpu(target) 
     

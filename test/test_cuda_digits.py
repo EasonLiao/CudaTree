@@ -14,3 +14,5 @@ def test_digits():
     print "%s(Wrong)/%s(Total). The error rate is %f." % (diff, total, diff/float(total))
   assert diff == 0
 
+if __name__ == "__main__":
+  test_digits()
