@@ -12,7 +12,7 @@ the latest version of [scikits-learn](http://scikit-learn.org/stable/modules/tre
 
 ```python
   import numpy as np
-  from cuda_tree import load_data, RandomForestClassifier
+  from cudatree import load_data, RandomForestClassifier
 
   x_train, y_train = load_data("digits")
   forest = RandomForestClassifier()
