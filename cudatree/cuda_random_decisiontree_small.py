@@ -12,7 +12,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
   
   def __init__(self, samples_gpu, labels_gpu, sorted_indices, compt_table, dtype_labels, dtype_samples, 
       dtype_indices, dtype_counts, n_features, n_samples, n_labels, n_threads, n_shf_threads, max_features = None,
-      max_depth = None, min_samples_split = None):
+      max_depth = None, min_samples_split = None, bfs_threshold = 64):
     self.root = None
     self.n_labels = n_labels
     self.max_depth = None
@@ -31,6 +31,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.max_depth = max_depth
     self.max_features = max_features
     self.min_samples_split =  min_samples_split
+    self.bfs_threshold = bfs_threshold
 
   def __compile_kernels(self):
     ctype_indices = dtype_to_ctype(self.dtype_indices)
@@ -58,17 +59,23 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.comput_label_loop_rand_kernel = mk_kernel((n_threads, n_labels, ctype_samples, 
       ctype_labels, ctype_counts, ctype_indices), "compute",  "comput_kernel_label_loop_rand.cu") 
     
-    self.find_min_kernel = mk_kernel((ctype_counts, 32), "find_min_imp", "find_min_gini.cu")
+    self.find_min_kernel = mk_kernel((ctype_counts, 32), 
+        "find_min_imp", "find_min_gini.cu")
       
-    self.predict_kernel = mk_kernel((ctype_indices, ctype_samples, ctype_labels), "predict", "predict.cu")
+    self.predict_kernel = mk_kernel((ctype_indices, ctype_samples, ctype_labels), 
+        "predict", "predict.cu")
   
-    self.scan_total_bfs = mk_kernel((self.BFS_THREADS, n_labels, ctype_labels, ctype_counts, ctype_indices), "count_total", "scan_kernel_total_bfs.cu")
+    self.scan_total_bfs = mk_kernel((self.BFS_THREADS, n_labels, ctype_labels, ctype_counts, ctype_indices), 
+        "count_total", "scan_kernel_total_bfs.cu")
   
-    self.comput_bfs = mk_kernel((self.BFS_THREADS, n_labels, ctype_samples, ctype_labels, ctype_counts, ctype_indices), "compute", "comput_kernel_bfs.cu")
+    self.comput_bfs = mk_kernel((self.BFS_THREADS, n_labels, ctype_samples, ctype_labels, ctype_counts, 
+      ctype_indices), "compute", "comput_kernel_bfs.cu")
     
     self.fill_bfs = mk_kernel((ctype_indices,), "fill_table", "fill_table_bfs.cu")
     
-    self.reshuffle_bfs = mk_kernel((ctype_indices, self.BFS_THREADS), "scan_reshuffle", "pos_scan_reshuffle_bfs.cu")
+    self.reshuffle_bfs, tex_ref = mk_tex_kernel((ctype_indices, self.BFS_THREADS), 
+        "scan_reshuffle", "tex_mark", "pos_scan_reshuffle_bfs.cu")
+    self.mark_table.bind_to_texref_ext(tex_ref) 
     
     if hasattr(self.fill_kernel, "is_prepared"):
       return
@@ -131,9 +138,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.min_split = gpuarray.empty(self.queue_size, dtype = self.dtype_indices)
     
     cuda.memcpy_htod(subset_indices_array_gpu.ptr, self.subset_indices_array[0:self.max_features * self.queue_size]) 
-  
-    if len(self.mark_table.shape) == 1:
-      self.mark_table = gpuarray.zeros((self.n_features, self.stride), dtype=np.uint8)
     
     self.scan_total_bfs.prepared_call(
             (self.queue_size, 1),
@@ -226,7 +230,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     queue_size = 0
     new_idx_array = np.empty(new_queue_size * 2, dtype = self.dtype_indices)
     new_si_idx_array = np.empty(new_queue_size, dtype = np.uint8)
-    new_nid_array = np.empty(new_queue_size, dtype = self.dtype_indices)
+    new_nid_array = np.empty(new_queue_size, dtype = np.uint32)
     
     """ Put the new request in queue"""
     for i in xrange(self.queue_size):
@@ -257,7 +261,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       self.n_nodes += 1
       right_nid = self.n_nodes
       self.n_nodes += 1
-        
+      
+      assert self.right_children[nid] == 0 and self.left_children[nid] == 0
       self.right_children[nid] = right_nid
       self.left_children[nid] = left_nid
 
@@ -319,8 +324,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     
     self.samples = samples
     self.target = target
-    self.left_children = np.zeros(self.stride * 2, dtype = self.dtype_indices)
-    self.right_children = np.zeros(self.stride * 2, dtype = self.dtype_indices)
+    self.left_children = np.zeros(self.stride * 2, dtype = np.uint32)
+    self.right_children = np.zeros(self.stride * 2, dtype = np.uint32)
+    
     self.feature_idx_array = np.zeros(2 *self.stride, dtype = np.uint16)
     self.feature_threshold_array = np.zeros(2 * self.stride, dtype = np.float32)
     self.values_array = np.zeros(2 * self.stride, dtype = self.dtype_labels)
@@ -328,7 +334,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.si_idx_array = np.zeros(self.stride, dtype = np.uint8)
     self.subset_indices_array = np.zeros(self.stride * self.max_features, dtype = self.dtype_indices)
     self.queue_size = 0
-    self.nid_array = np.zeros(self.stride, dtype = self.dtype_indices)
+    self.nid_array = np.zeros(self.stride, dtype = np.uint32)
     self.n_nodes = 0 
     self.root = self.__dfs_construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_, self.get_indices())  
     self.__bfs_construct() 
@@ -344,7 +350,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
         si_labels = np.empty(n_samples, dtype=self.dtype_indices)
         cuda.memcpy_dtoh(si_labels, si.ptr + int(start_idx * self.dtype_indices.itemsize))
         self.values_array[nid]  = self._find_most_common_label(self.target[si_labels])
-
 
   def __dfs_construct(self, depth, error_rate, start_idx, stop_idx, si_gpu_in, si_gpu_out, subset_indices):
     def check_terminate():
@@ -367,7 +372,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       self.__turn_to_leaf(nid, start_idx, n_samples, si_gpu_in)
       return
     
-    if n_samples <= 64:
+    if n_samples <= self.bfs_threshold:
       self.idx_array[self.queue_size * 2] = start_idx
       self.idx_array[self.queue_size * 2 + 1] = stop_idx
       self.si_idx_array[self.queue_size] = si_gpu_in.idx
@@ -465,10 +470,12 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                       col,
                       self.stride) 
 
+    assert self.left_children[nid] == 0
     self.left_children[nid] = self.n_nodes
     self.__dfs_construct(depth + 1, min_left, 
         start_idx, start_idx + col + 1, si_gpu_out, si_gpu_in, subset_indices_left)
     
+    assert self.right_children[nid] == 0
     self.right_children[nid] = self.n_nodes
     self.__dfs_construct(depth + 1, min_right, 
         start_idx + col + 1, stop_idx, si_gpu_out, si_gpu_in, subset_indices_right)

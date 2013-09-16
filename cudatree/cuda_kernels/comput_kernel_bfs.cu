@@ -55,16 +55,18 @@ __global__ void compute(
   __shared__ LABEL_DATA_TYPE shared_labels[THREADS_PER_BLOCK];
   __shared__ SAMPLE_DATA_TYPE shared_samples[THREADS_PER_BLOCK + 1];
 
+  
+  reg_start_idx = begin_stop_idx[2 * blockIdx.x];
+  reg_stop_idx = begin_stop_idx[2 * blockIdx.x + 1];
+  
   float reg_min_left = 2.0;
   float reg_min_right = 2.0;
   uint16_t reg_min_fidx = 0;
-  IDX_DATA_TYPE reg_min_split = 0;
+  IDX_DATA_TYPE reg_min_split = reg_stop_idx;
 
   for(uint16_t i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x)
     shared_count_total[i] = label_total[blockIdx.x * MAX_NUM_LABELS + i];
  
-  reg_start_idx = begin_stop_idx[2 * blockIdx.x];
-  reg_stop_idx = begin_stop_idx[2 * blockIdx.x + 1];
   
   uint8_t reg_si_idx = si_idx[blockIdx.x];
   if(reg_si_idx == 0)

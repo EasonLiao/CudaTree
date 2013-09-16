@@ -4,6 +4,8 @@
 #define IDX_DATA_TYPE %s
 #define THREADS_PER_BLOCK %s
 
+texture<char, 1> tex_mark;
+
 __global__ void scan_reshuffle(
                           uint8_t* mark_table,
                           uint8_t* si_idx,
@@ -22,7 +24,10 @@ __global__ void scan_reshuffle(
   IDX_DATA_TYPE reg_stop_idx = begin_end_idx[2 * blockIdx.x + 1];
   IDX_DATA_TYPE reg_split_idx = split[blockIdx.x];
   IDX_DATA_TYPE n;
- 
+  
+  if(reg_split_idx == reg_stop_idx)
+    return;
+
   IDX_DATA_TYPE *p_sorted_indices_in;
   IDX_DATA_TYPE *p_sorted_indices_out;
 
@@ -45,7 +50,8 @@ __global__ void scan_reshuffle(
       IDX_DATA_TYPE idx = i + threadIdx.x;
 
       if(idx < reg_stop_idx)
-        side = mark_table[feature_table_idx * stride + p_sorted_indices_in[offset + idx]];
+        side = tex1Dfetch(tex_mark, p_sorted_indices_in[offset + idx]);
+        //side = mark_table[p_sorted_indices_in[offset + idx]];
       
       shared_pos_table[threadIdx.x] = side;
       

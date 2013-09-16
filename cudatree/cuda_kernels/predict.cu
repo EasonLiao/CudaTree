@@ -5,8 +5,8 @@
 #define SAMPLE_DATA_TYPE %s
 #define LABEL_DATA_TYPE %s
 
-__global__ void predict(IDX_DATA_TYPE *left_child_arr,
-                        IDX_DATA_TYPE *right_child_arr,
+__global__ void predict(uint32_t *left_child_arr,
+                        uint32_t *right_child_arr,
                         uint16_t *feature_array,
                         float *threshold_array,
                         LABEL_DATA_TYPE *value_array,
@@ -19,8 +19,8 @@ __global__ void predict(IDX_DATA_TYPE *left_child_arr,
   int idx = 0; 
   
   while(true){
-    IDX_DATA_TYPE left_idx = left_child_arr[idx];
-    IDX_DATA_TYPE right_idx = right_child_arr[idx];
+    uint32_t left_idx = left_child_arr[idx];
+    uint32_t right_idx = right_child_arr[idx];
     
     if(left_idx == 0 || right_idx == 0){
       //Means it's on leaf.

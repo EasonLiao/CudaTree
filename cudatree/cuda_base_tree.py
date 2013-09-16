@@ -8,7 +8,15 @@ class BaseTree(object):
     self.max_depth = None
 
   def print_tree(self):
-    assert False
+    def recursive_print(idx, depth):
+      if self.left_children[idx] == 0 and self.right_children[idx] == 0:
+        print "[LEAF] Depth: %s, Value: %s" % (depth, self.values_array[idx])
+      else:
+        print "[NODE] Depth: %s, Feature: %s, Threshold: %f" % (depth, self.feature_idx_array[idx], 
+            self.feature_threshold_array[idx])
+        recursive_print(self.left_children[idx], depth + 1)
+        recursive_print(self.right_children[idx], depth + 1) 
+    recursive_print(0, 0)
 
   def __gpu_predict(self, val):
     idx = 0
@@ -27,7 +35,6 @@ class BaseTree(object):
         return self.value_array[idx]
 
   def gpu_predict(self, inputs):
-    inputs = np.require(inputs.copy(), requirements = "C")
     n_predict = inputs.shape[0]    
     predict_gpu = gpuarray.to_gpu(inputs)
     left_child_gpu = gpuarray.to_gpu(self.left_children)
@@ -63,3 +70,4 @@ class BaseTree(object):
     self.right_children = self.right_children[0 : self.n_nodes]
     self.feature_threshold_array = self.feature_threshold_array[0 : self.n_nodes]
     self.feature_idx_array = self.feature_idx_array[0 : self.n_nodes]
+    self.values_array = self.values_array[0 : self.n_nodes]

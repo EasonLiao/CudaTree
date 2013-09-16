@@ -32,7 +32,7 @@ class RandomForestClassifier(object):
       for i, val in enumerate(target):
         target[i] = trans_table[val]
 
-  def fit(self, samples, target, n_trees = 10, min_samples_split = 1, max_features = None, max_depth = None):
+  def fit(self, samples, target, n_trees = 10, min_samples_split = 1, max_features = None, max_depth = None, bfs_threshold = 64):
     """Construce multiple trees in the forest.
 
     Parameters
@@ -42,7 +42,7 @@ class RandomForestClassifier(object):
 
     target: numpy.array of shape = [n_samples]
             The training input labels.
-
+    
     n_trees : integer, optional (default=10)
         The number of trees in the forest.
 
@@ -59,6 +59,9 @@ class RandomForestClassifier(object):
         The minimum number of samples required to split an internal node.
         Note: this parameter is tree-specific.
     
+    bfs_threshold: integer, optional (default=64)
+            The n_samples threshold of changing to bfs
+    
     Returns
     -------
     None
@@ -72,6 +75,7 @@ class RandomForestClassifier(object):
     self.n_labels = self.compt_table.size 
 
     self.dtype_indices = get_best_dtype(target.size)
+
     if self.dtype_indices == np.dtype(np.uint8):
       self.dtype_indices = np.dtype(np.uint16)
 
@@ -102,7 +106,7 @@ class RandomForestClassifier(object):
     self.forest = [RandomDecisionTreeSmall(samples_gpu, labels_gpu, sorted_indices, self.compt_table, 
       self.dtype_labels,self.dtype_samples, self.dtype_indices, self.dtype_counts,
       self.n_features, self.n_samples, self.n_labels, self.COMPT_THREADS_PER_BLOCK,
-      self.RESHUFFLE_THREADS_PER_BLOCK, max_features, max_depth, min_samples_split) for i in xrange(n_trees)]   
+      self.RESHUFFLE_THREADS_PER_BLOCK, max_features, max_depth, min_samples_split, bfs_threshold) for i in xrange(n_trees)]   
    
     for i, tree in enumerate(self.forest):
       with timer("Tree %s" % (i,)):
@@ -121,6 +125,7 @@ class RandomForestClassifier(object):
     y: Array of shape [n_samples].
         The predicted labels.
     """
+    x = np.require(x.copy(), requirements = "C")
     res = []
     for tree in self.forest:
       res.append(tree.gpu_predict(x))
