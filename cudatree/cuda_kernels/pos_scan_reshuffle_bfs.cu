@@ -13,13 +13,11 @@ __global__ void scan_reshuffle(
                           IDX_DATA_TYPE* sorted_indices_2,
                           IDX_DATA_TYPE* begin_end_idx,
                           IDX_DATA_TYPE* split,
-                          uint16_t* feature_idx,
                           uint16_t n_features,
                           uint32_t stride
                           ){  
   __shared__ IDX_DATA_TYPE last_sum;
   __shared__ IDX_DATA_TYPE shared_pos_table[THREADS_PER_BLOCK];
-  uint16_t feature_table_idx = feature_idx[blockIdx.x];
   IDX_DATA_TYPE reg_start_idx = begin_end_idx[2 * blockIdx.x];
   IDX_DATA_TYPE reg_stop_idx = begin_end_idx[2 * blockIdx.x + 1];
   IDX_DATA_TYPE reg_split_idx = split[blockIdx.x];
@@ -27,7 +25,7 @@ __global__ void scan_reshuffle(
   
   if(reg_split_idx == reg_stop_idx)
     return;
-
+  
   IDX_DATA_TYPE *p_sorted_indices_in;
   IDX_DATA_TYPE *p_sorted_indices_out;
 

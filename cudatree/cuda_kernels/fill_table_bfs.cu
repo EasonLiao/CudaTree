@@ -22,7 +22,7 @@ __global__ void fill_table(
   
   if(reg_split == reg_stop_idx)
     return;
-
+  
   uint8_t reg_si_idx = si_idx[blockIdx.x];
   IDX_DATA_TYPE* p_sorted_indices = (reg_si_idx == 0)? sorted_indices_1 : sorted_indices_2;
   uint32_t offset = reg_fidx * stride;
