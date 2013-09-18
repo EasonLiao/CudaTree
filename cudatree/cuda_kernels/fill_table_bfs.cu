@@ -12,17 +12,24 @@ __global__ void fill_table(
                           IDX_DATA_TYPE *begin_end_idx,
                           IDX_DATA_TYPE *min_split,
                           uint8_t *mark_table,
+                          float *impurity,
                           int stride
                           ){
   
-  uint16_t reg_fidx = feature_idx[blockIdx.x];
-  IDX_DATA_TYPE reg_start_idx = begin_end_idx[2 * blockIdx.x];
+  float imp_left = impurity[2 * blockIdx.x];
+  float imp_right = impurity[2 * blockIdx.x + 1];
+
+  if(imp_left == 0 && imp_right == 0)
+    return;
+
   IDX_DATA_TYPE reg_stop_idx = begin_end_idx[2 * blockIdx.x + 1];
   IDX_DATA_TYPE reg_split = min_split[blockIdx.x];
-  
+
   if(reg_split == reg_stop_idx)
     return;
   
+  IDX_DATA_TYPE reg_start_idx = begin_end_idx[2 * blockIdx.x];
+  uint16_t reg_fidx = feature_idx[blockIdx.x];
   uint8_t reg_si_idx = si_idx[blockIdx.x];
   IDX_DATA_TYPE* p_sorted_indices = (reg_si_idx == 0)? sorted_indices_1 : sorted_indices_2;
   uint32_t offset = reg_fidx * stride;

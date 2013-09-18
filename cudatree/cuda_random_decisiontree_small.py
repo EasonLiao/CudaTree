@@ -88,8 +88,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.predict_kernel.prepare("PPPPPPPii")
     self.scan_total_bfs.prepare("PPPPPPPi")
     self.comput_bfs.prepare("PPPPPPPPPPPii")
-    self.fill_bfs.prepare("PPPPPPPi")
-    self.reshuffle_bfs.prepare("PPPPPPii")
+    self.fill_bfs.prepare("PPPPPPPPi")
+    self.reshuffle_bfs.prepare("PPPPPPPii")
 
   def __allocate_gpuarrays(self):
     if self.max_features < 4:
@@ -184,6 +184,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           idx_array_gpu.ptr,
           self.min_split.ptr,
           self.mark_table.ptr,
+          impurity_gpu.ptr,
           self.stride)
     
     block_per_split = int(math.ceil(float(5000) / self.queue_size))
@@ -200,6 +201,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.sorted_indices_gpu_.ptr,
           idx_array_gpu.ptr,
           self.min_split.ptr,
+          impurity_gpu.ptr,
           self.n_features,
           self.stride)
     
@@ -239,8 +241,10 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     for i in xrange(self.queue_size):
       if self.si_idx_array[i] == 1:
         si = self.sorted_indices_gpu
+        si_ = self.sorted_indices_gpu_ 
       else:
         si = self.sorted_indices_gpu_
+        si_ = self.sorted_indices_gpu
       
       nid = self.nid_array[i]
       row = feature_idx[i]
@@ -250,14 +254,14 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       start_idx = self.idx_array[2 * i]
       stop_idx = self.idx_array[2 * i + 1]
        
-      cuda.memcpy_dtoh(self.threshold_value_idx, si.ptr +  
+      cuda.memcpy_dtoh(self.threshold_value_idx, si_.ptr +  
           int(row * self.stride + col) * int(self.dtype_indices.itemsize))
       
       self.feature_idx_array[nid] = row
       self.feature_threshold_array[nid] = (float(self.samples[row, self.threshold_value_idx[0]]) + self.samples[row, self.threshold_value_idx[1]]) / 2
     
       if left_imp + right_imp == 4.0:
-        self.__turn_to_leaf(nid, start_idx, stop_idx - start_idx, si)
+        self.__turn_to_leaf(nid, start_idx, stop_idx - start_idx, si_)
         continue
       
       left_nid = self.n_nodes
@@ -279,7 +283,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           new_nid_array[queue_size] = left_nid
           queue_size += 1
       else:
-        cuda.memcpy_dtoh(self.target_value_idx, si.ptr + int(start_idx * self.dtype_indices.itemsize))
+        cuda.memcpy_dtoh(self.target_value_idx, si_.ptr + int((start_idx + row * self.stride) * self.dtype_indices.itemsize))
         self.values_array[left_nid] = self.target[self.target_value_idx[0]]
 
       if right_imp != 0.0:
@@ -293,7 +297,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           new_nid_array[queue_size] = right_nid
           queue_size += 1
       else:
-        cuda.memcpy_dtoh(self.target_value_idx, si.ptr + int((col + 1) * self.dtype_indices.itemsize)) 
+        cuda.memcpy_dtoh(self.target_value_idx, si_.ptr + int((col + 1 + row * self.stride) * self.dtype_indices.itemsize)) 
         self.values_array[right_nid] = self.target[self.target_value_idx[0]]
     
     self.idx_array = new_idx_array
@@ -442,16 +446,28 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     if min_left + min_right == 4:
       self.__turn_to_leaf(nid, start_idx, n_samples, si_gpu_in) 
       return
-    
+     
     col = int(self.min_imp_info[2]) 
     row = int(self.min_imp_info[3])
     row = subset_indices[row]
-    
+     
     cuda.memcpy_dtoh(self.threshold_value_idx, si_gpu_in.ptr + int(indices_offset) + 
         int(row * self.stride + col) * int(self.dtype_indices.itemsize)) 
     self.feature_idx_array[nid] = row
     self.feature_threshold_array[nid] = (float(self.samples[row, self.threshold_value_idx[0]]) + self.samples[row, self.threshold_value_idx[1]]) / 2
     
+    if min_left + min_right == 0:
+      cuda.memcpy_dtoh(self.target_value_idx, si_gpu_in.ptr + int((row * self.stride + start_idx) * self.dtype_indices.itemsize))
+      self.values_array[self.n_nodes] = self.target[self.target_value_idx[0]]
+      self.left_children[nid] = self.n_nodes
+      self.n_nodes += 1
+      
+      cuda.memcpy_dtoh(self.target_value_idx, si_gpu_in.ptr + int((row * self.stride + col + 1 + start_idx) * self.dtype_indices.itemsize))
+      self.values_array[self.n_nodes] = self.target[self.target_value_idx[0]]
+      self.right_children[nid] = self.n_nodes
+      self.n_nodes += 1
+      return
+
     self.fill_kernel.prepared_call(
                       (1, 1),
                       (512, 1, 1),
