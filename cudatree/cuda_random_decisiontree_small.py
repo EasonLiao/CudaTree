@@ -9,13 +9,12 @@ from cuda_random_base_tree import RandomBaseTree
 class RandomDecisionTreeSmall(RandomBaseTree): 
   BFS_THREADS = 32
   
-  def __init__(self, samples_gpu, labels_gpu, sorted_indices, compt_table, dtype_labels, dtype_samples, 
-      dtype_indices, dtype_counts, n_features, n_samples, n_labels, n_threads, n_shf_threads, max_features = None,
-      max_depth = None, min_samples_split = None, bfs_threshold = 64):
+  def __init__(self, samples_gpu, labels_gpu, compt_table, dtype_labels, dtype_samples, 
+      dtype_indices, dtype_counts, n_features, stride, n_labels, n_threads, n_shf_threads, max_features = None,
+      min_samples_split = None, bfs_threshold = 64):
     self.root = None
     self.n_labels = n_labels
-    self.max_depth = None
-    self.stride = n_samples
+    self.stride = stride
     self.dtype_labels = dtype_labels
     self.dtype_samples = dtype_samples
     self.dtype_indices = dtype_indices
@@ -25,9 +24,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.RESHUFFLE_THREADS_PER_BLOCK = n_shf_threads
     self.samples_gpu = samples_gpu
     self.labels_gpu = labels_gpu
-    self.sorted_indices = sorted_indices
     self.compt_table = compt_table
-    self.max_depth = max_depth
     self.max_features = max_features
     self.min_samples_split =  min_samples_split
     self.bfs_threshold = bfs_threshold
@@ -306,7 +303,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.queue_size = queue_size
 
 
-  def fit(self, samples, target): 
+  def fit(self, samples, target, sorted_indices, n_samples): 
     self.samples_itemsize = self.dtype_samples.itemsize
     self.labels_itemsize = self.dtype_labels.itemsize
     self.target_value_idx = np.zeros(1, self.dtype_indices)
@@ -319,9 +316,10 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     assert self.max_features > 0 and self.max_features <= self.n_features, "max_features must be between 0 and n_features." 
     self.__allocate_gpuarrays()
     self.__compile_kernels() 
-    self.sorted_indices_gpu = gpuarray.to_gpu(self.sorted_indices)
+    self.sorted_indices_gpu = sorted_indices #gpuarray.to_gpu(self.sorted_indices)
     self.sorted_indices_gpu_ = self.sorted_indices_gpu.copy()
-    
+    self.n_samples = n_samples    
+
     self.sorted_indices_gpu.idx = 0
     self.sorted_indices_gpu_.idx = 1
 
@@ -330,19 +328,19 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     
     self.samples = samples
     self.target = target
-    self.left_children = np.zeros(self.stride * 2, dtype = np.uint32)
-    self.right_children = np.zeros(self.stride * 2, dtype = np.uint32)
+    self.left_children = np.zeros(self.n_samples * 2, dtype = np.uint32)
+    self.right_children = np.zeros(self.n_samples * 2, dtype = np.uint32)
     
-    self.feature_idx_array = np.zeros(2 *self.stride, dtype = np.uint16)
-    self.feature_threshold_array = np.zeros(2 * self.stride, dtype = np.float32)
-    self.values_array = np.zeros(2 * self.stride, dtype = self.dtype_labels)
-    self.idx_array = np.zeros(2 * self.stride, dtype = self.dtype_indices)
-    self.si_idx_array = np.zeros(self.stride, dtype = np.uint8)
-    self.subset_indices_array = np.zeros(self.stride * self.max_features, dtype = self.dtype_indices)
+    self.feature_idx_array = np.zeros(2 * self.n_samples, dtype = np.uint16)
+    self.feature_threshold_array = np.zeros(2 * self.n_samples, dtype = np.float32)
+    self.values_array = np.zeros(2 * self.n_samples, dtype = self.dtype_labels)
+    self.idx_array = np.zeros(2 * self.n_samples, dtype = self.dtype_indices)
+    self.si_idx_array = np.zeros(self.n_samples, dtype = np.uint8)
+    self.subset_indices_array = np.zeros(self.n_samples * self.max_features, dtype = self.dtype_indices)
     self.queue_size = 0
-    self.nid_array = np.zeros(self.stride, dtype = np.uint32)
+    self.nid_array = np.zeros(self.n_samples, dtype = np.uint32)
     self.n_nodes = 0 
-    self.root = self.__dfs_construct(1, 1.0, 0, target.size, self.sorted_indices_gpu, self.sorted_indices_gpu_, self.get_indices())  
+    self.root = self.__dfs_construct(1, 1.0, 0, self.n_samples, self.sorted_indices_gpu, self.sorted_indices_gpu_, self.get_indices())  
     self.__bfs_construct() 
     self.__release_gpuarrays()
     self.gpu_decorate_nodes(samples, target)
@@ -374,7 +372,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       self.values_array[nid] = self.target[self.target_value_idx[0]]
       return
     
-    if n_samples < self.min_samples_split or (self.max_depth is not None and depth >= self.max_depth):
+    if n_samples < self.min_samples_split:
       self.__turn_to_leaf(nid, start_idx, n_samples, si_gpu_in)
       return
     
@@ -427,9 +425,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     #            self.subset_indices.ptr,
     #            n_samples,
     #            self.stride)
-
-    subset_indices_left = self.get_indices()
-    subset_indices_right = self.get_indices()
 
     self.find_min_kernel.prepared_call(
                 (1, 1),
@@ -488,6 +483,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                       n_samples,
                       col,
                       self.stride) 
+    
+    subset_indices_left = self.get_indices()
+    subset_indices_right = self.get_indices()
     
     self.left_children[nid] = self.n_nodes
     self.__dfs_construct(depth + 1, min_left, 

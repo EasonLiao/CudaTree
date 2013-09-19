@@ -3,6 +3,7 @@ from cuda_random_decisiontree_small import RandomDecisionTreeSmall
 from util import timer, get_best_dtype, dtype_to_ctype, mk_kernel, mk_tex_kernel
 from pycuda import gpuarray
 
+
 class RandomForestClassifier(object):
   """A random forest classifier.
 
@@ -31,8 +32,50 @@ class RandomForestClassifier(object):
       trans_table = convert_to_dict(self.compt_table)
       for i, val in enumerate(target):
         target[i] = trans_table[val]
+   
+  def __init_bootstrap_kernel(self):
+    """ Compile the kernels and GPUArrays needed to generate the bootstrap samples"""
+    ctype_indices = dtype_to_ctype(self.dtype_indices)
+    self.bootstrap_fill= mk_kernel((ctype_indices,), "bootstrap_fill",
+        "bootstrap_fill.cu")
+    self.bootstrap_reshuffle, tex_ref = mk_tex_kernel((ctype_indices, 128), "bootstrap_reshuffle",
+        "tex_mark", "bootstrap_reshuffle.cu")
+    
+    self.bootstrap_fill.prepare("PPii")
+    self.bootstrap_reshuffle.prepare("PPPi")
+    self.mark_table = gpuarray.empty(self.stride, np.uint8) 
+    self.mark_table.bind_to_texref_ext(tex_ref)
 
-  def fit(self, samples, target, n_trees = 10, min_samples_split = 1, max_features = None, max_depth = None, bfs_threshold = 64):
+  def __get_sorted_indices(self):
+    """ Generate sorted indices, if bootstrap == False, then the sorted indices is as same as original sorted indices """
+    if not self.bootstrap:
+      sorted_indices_gpu = self.sorted_indices_gpu.copy()
+      return sorted_indices_gpu, sorted_indices_gpu.shape[1]
+    else:
+      sorted_indices_gpu = gpuarray.empty((self.n_features, self.stride), dtype = self.dtype_indices)
+      random_sample_idx = np.unique(np.random.randint(0, self.stride, size = self.stride)).astype(self.dtype_indices)
+      random_sample_idx_gpu = gpuarray.to_gpu(random_sample_idx)
+      n_samples = random_sample_idx.size
+      
+      self.bootstrap_fill.prepared_call(
+                (1, 1),
+                (512, 1, 1),
+                random_sample_idx_gpu.ptr,
+                self.mark_table.ptr,
+                n_samples,
+                self.stride)
+
+      self.bootstrap_reshuffle.prepared_call(
+                (self.n_features, 1),
+                (128, 1, 1),
+                self.mark_table.ptr,
+                self.sorted_indices_gpu.ptr,
+                sorted_indices_gpu.ptr,
+                self.stride)
+      
+      return sorted_indices_gpu, n_samples 
+
+  def fit(self, samples, target, n_trees = 10, min_samples_split = 1, max_features = None, bfs_threshold = 64, bootstrap = True):
     """Construce multiple trees in the forest.
 
     Parameters
@@ -49,11 +92,6 @@ class RandomForestClassifier(object):
     max_features : int or None, optional (default="log2(n_features)")
         The number of features to consider when looking for the best split:
           - If None, then `max_features=log2(n_features)`.
-
-    max_depth : integer or None, optional (default=None)
-        The maximum depth of the tree. If None, then nodes are expanded until
-        all leaves are pure or until all leaves contain less than
-        min_samples_spl samples.
 
     min_samples_split : integer, optional (default=2)
         The minimum number of samples required to split an internal node.
@@ -73,7 +111,7 @@ class RandomForestClassifier(object):
     target = target.copy()
     self.__compact_labels(target)
     self.n_labels = self.compt_table.size 
-
+    self.bootstrap = bootstrap
     self.dtype_indices = get_best_dtype(target.size)
 
     if self.dtype_indices == np.dtype(np.uint8):
@@ -86,31 +124,39 @@ class RandomForestClassifier(object):
     samples = np.require(np.transpose(samples), requirements = 'C')
     target = np.require(np.transpose(target), dtype = self.dtype_labels, requirements = 'C') 
     self.n_features = samples.shape[0]
-    self.n_samples = target.size
+    self.stride = target.size
     
-    if self.COMPT_THREADS_PER_BLOCK > self.n_samples:
+    if self.COMPT_THREADS_PER_BLOCK > self.stride:
       self.COMPT_THREADS_PER_BLOCK = 32
-    if self.RESHUFFLE_THREADS_PER_BLOCK > self.n_samples:
+    if self.RESHUFFLE_THREADS_PER_BLOCK > self.stride:
       self.RESHUFFLE_THREADS_PER_BLOCK = 32
-
 
     samples_gpu = gpuarray.to_gpu(samples)
     labels_gpu = gpuarray.to_gpu(target) 
     
-    sorted_indices = np.empty((self.n_features, target.size), dtype = self.dtype_indices)
+    sorted_indices = np.empty((self.n_features, self.stride), dtype = self.dtype_indices)
     
     for i,f in enumerate(samples):
       sort_idx = np.argsort(f)
       sorted_indices[i] = sort_idx  
- 
-    self.forest = [RandomDecisionTreeSmall(samples_gpu, labels_gpu, sorted_indices, self.compt_table, 
+  
+    self.sorted_indices_gpu = gpuarray.to_gpu(sorted_indices)
+  
+    if self.bootstrap:
+      self.__init_bootstrap_kernel()
+
+    self.forest = [RandomDecisionTreeSmall(samples_gpu, labels_gpu, self.compt_table, 
       self.dtype_labels,self.dtype_samples, self.dtype_indices, self.dtype_counts,
-      self.n_features, self.n_samples, self.n_labels, self.COMPT_THREADS_PER_BLOCK,
-      self.RESHUFFLE_THREADS_PER_BLOCK, max_features, max_depth, min_samples_split, bfs_threshold) for i in xrange(n_trees)]   
+      self.n_features, self.stride, self.n_labels, self.COMPT_THREADS_PER_BLOCK,
+      self.RESHUFFLE_THREADS_PER_BLOCK, max_features, min_samples_split, bfs_threshold) for i in xrange(n_trees)]   
    
     for i, tree in enumerate(self.forest):
+      si, n_samples = self.__get_sorted_indices()
       with timer("Tree %s" % (i,)):
-        tree.fit(samples, target)
+        tree.fit(samples, target, si, n_samples)
+    
+    self.sorted_indices = None
+    self.mark_table = None
 
   def predict(self, x):
     """Predict labels for giving samples.
