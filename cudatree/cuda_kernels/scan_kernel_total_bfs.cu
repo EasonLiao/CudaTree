@@ -16,7 +16,7 @@ __global__ void count_total(
                           uint8_t *si_idx,
                           IDX_DATA_TYPE *begin_stop_idx,
                           IDX_DATA_TYPE *subset_indices,
-                          uint16_t max_features
+                          uint32_t max_features
                           ){
   
   IDX_DATA_TYPE *p_sorted_indices;

@@ -345,6 +345,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.__release_gpuarrays()
     self.gpu_decorate_nodes(samples, target)
 
+
   def __turn_to_leaf(self, nid, start_idx, n_samples, si):
       """ Pick the indices to record on the leaf node. We'll choose the most common label """
       if n_samples < 5:
