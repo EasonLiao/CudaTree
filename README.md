@@ -27,7 +27,6 @@ CudaTree is writen for Python 2.7 and depends on:
 * [Scikit-learn](http://scikit-learn.org/stable/)
 * [Numpy](http://www.scipy.org/install.html)
 * [PyCUDA](http://documen.tician.de/pycuda/#)
-* [Nose](https://nose.readthedocs.org/en/latest/)
 
 
 ### Limitations:
@@ -67,11 +66,11 @@ on your GPU, then CudaTree will fail.
 In addition to memory requirement, there are several other limitations hard-coded into CudaTree: 
 
 * The maximum number of features allowed is 65,536.
-* The maximum number of categories allowed is 10000 (CudaTree performs best when the number of categories is <=100).
-* Your NVIDIA GPU must have compute capability >= 2.0.
+* The maximum number of categories allowed is 2000 (CudaTree performs best when the number of categories is <=100).
+* Your NVIDIA GPU must have compute capability >= 1.3.
 * Currently, the only splitting criterion is GINI impurity, which means CudaTree can't yet do regression (splitting by variance for continuous outputs is planned)
 
-The performance gain over scikits-learn is typically about 1.5X ~ 2X, though the exact number depends on how powerful your GPU is and what your training data looks like. 
+The performance gain over scikits-learn is typically about 1.5X ~ 2.5X, though the exact number depends on how powerful your GPU is and what your training data looks like. 
 
 
 
