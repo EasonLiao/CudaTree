@@ -25,7 +25,8 @@ Building Decision Tree on Cuda.
     requires = [
         'numpy',
         'sklearn',
-        'pycuda'
+        'pycuda',
+        "cython"
       ],
     classifiers=['Development Status :: 3 - Alpha',
                   'Topic :: Software Development :: Libraries',
