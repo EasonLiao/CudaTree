@@ -65,9 +65,3 @@ class BaseTree(object):
   def _find_most_common_label(self, x):
     return np.argmax(np.bincount(x))
 
-  def gpu_decorate_nodes(self, samples, labels):
-    self.left_children = self.left_children[0 : self.n_nodes]
-    self.right_children = self.right_children[0 : self.n_nodes]
-    self.feature_threshold_array = self.feature_threshold_array[0 : self.n_nodes]
-    self.feature_idx_array = self.feature_idx_array[0 : self.n_nodes]
-    self.values_array = self.values_array[0 : self.n_nodes]

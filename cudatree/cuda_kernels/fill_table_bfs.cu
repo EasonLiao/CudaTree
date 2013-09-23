@@ -12,16 +12,9 @@ __global__ void fill_table(
                           IDX_DATA_TYPE *begin_end_idx,
                           IDX_DATA_TYPE *min_split,
                           uint8_t *mark_table,
-                          float *impurity,
                           int stride
                           ){
   
-  float imp_left = impurity[2 * blockIdx.x];
-  float imp_right = impurity[2 * blockIdx.x + 1];
-
-  if(imp_left == 0 && imp_right == 0)
-    return;
-
   IDX_DATA_TYPE reg_stop_idx = begin_end_idx[2 * blockIdx.x + 1];
   IDX_DATA_TYPE reg_split = min_split[blockIdx.x];
 

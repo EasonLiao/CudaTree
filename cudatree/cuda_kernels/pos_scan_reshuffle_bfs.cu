@@ -16,7 +16,6 @@ __global__ void scan_reshuffle(
                           IDX_DATA_TYPE* sorted_indices_2,
                           IDX_DATA_TYPE* begin_end_idx,
                           IDX_DATA_TYPE* split,
-                          float *impurity,
                           uint32_t n_features,
                           uint32_t stride
                           ){  
@@ -37,12 +36,6 @@ __global__ void scan_reshuffle(
   IDX_DATA_TYPE n;
   
   if(reg_split_idx == reg_stop_idx)
-    return;
-  
-  float imp_left = impurity[2 * blockIdx.x];
-  float imp_right = impurity[2 * blockIdx.x + 1];
-
-  if(imp_left == 0 && imp_right == 0)
     return;
   
   IDX_DATA_TYPE *p_sorted_indices_in;
