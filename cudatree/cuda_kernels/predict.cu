@@ -14,7 +14,14 @@ __global__ void predict(uint32_t *left_child_arr,
                         LABEL_DATA_TYPE *predict_res,
                         int n_features,
                         int n_nodes
-                        ){
+                        ) {
+  /* 
+    Predict new labels for previously unseen data points. 
+    Inputs: 
+      - left_child_arr : what's the index of the left child node? 
+      - right_child_arr : what's the index of the right child node? 
+      - threshold_array : 
+  */ 
   int offset = blockIdx.x * n_features;
   int idx = 0; 
   
