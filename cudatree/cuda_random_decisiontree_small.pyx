@@ -8,12 +8,10 @@ from cuda_random_base_tree import RandomBaseTree
 from pycuda import driver
 import random
 
-"""
 cimport numpy as np
 ctypedef np.uint8_t DTYPE_8
 ctypedef np.uint32_t DTYPE_32
 ctypedef np.float32_t FLOAT_32
-"""
 
 class RandomDecisionTreeSmall(RandomBaseTree): 
   BFS_THREADS = 64
@@ -40,7 +38,11 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.bfs_threshold = bfs_threshold
   
   def get_indices(self):
-    return np.arange(self.max_features, dtype=self.dtype_indices)
+    start_timer("get indices")
+    ret  = np.arange(self.max_features, dtype=self.dtype_indices)
+    end_timer("get indices")
+    return ret
+
     if self.max_features < self.n_features / 2:
       return np.array(random.sample(xrange(self.n_features), self.max_features), dtype=self.dtype_indices)
     else:
@@ -97,6 +99,11 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       self.MAX_BLOCK_PER_FEATURE), "compute", "comput_kernel_2d.cu")
 
     self.reduce_2d = mk_kernel((ctype_indices, self.MAX_BLOCK_PER_FEATURE), "reduce", "reduce_2d.cu")
+    
+    self.scan_total_2d = mk_kernel((n_threads, n_labels, ctype_labels, ctype_counts, ctype_indices, self.MAX_BLOCK_PER_FEATURE),
+        "count_total", "scan_kernel_2d.cu")
+    
+    self.scan_reduce = mk_kernel((n_labels, ctype_indices, self.MAX_BLOCK_PER_FEATURE), "scan_reduce", "scan_reduce.cu")
 
     if hasattr(self.fill_kernel, "is_prepared"):
       return
@@ -116,6 +123,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.scan_total_per_feature.prepare("PPPPiii")
     self.comput_total_2d.prepare("PPPPPPPiii")
     self.reduce_2d.prepare("PPPPPi")
+    self.scan_total_2d.prepare("PPPPiii")
+    self.scan_reduce.prepare("Pi")
 
   def __allocate_gpuarrays(self):
     if self.max_features < 4:
@@ -168,6 +177,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.label_total = gpuarray.empty(self.queue_size * self.n_labels, dtype = self.dtype_counts)  
     impurity_gpu = gpuarray.empty(self.queue_size * 2, dtype = np.float32)
     self.min_split = gpuarray.empty(self.queue_size, dtype = self.dtype_indices) 
+    threshold_value = gpuarray.empty(self.queue_size, dtype = np.float32)
 
     cuda.memcpy_htod(subset_indices_array_gpu.ptr, self.subset_indices_array[0:self.max_features * self.queue_size]) 
     end_timer("bfs alloc")
@@ -205,7 +215,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     driver.Context.synchronize()
     end_timer("gini bfs")
     
-    #cdef np.ndarray[FLOAT_32, ndim=1] imp_min
+    cdef np.ndarray[FLOAT_32, ndim=1] imp_min
     imp_min = impurity_gpu.get()
     min_split = self.min_split.get()
     feature_idx = min_feature_idx_gpu.get()
@@ -242,7 +252,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     driver.Context.synchronize()
     end_timer("reshuffle bfs")
     
-    """
     cdef int left_idx
     cdef int right_idx
     cdef float left_imp
@@ -259,9 +268,11 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     cdef int row
     cdef int left_nid
     cdef int right_nid
-    """
 
     new_queue_size = 0
+    
+    
+    start_timer("bfs loop")
 
     """ While the GPU is being utilized, run some CPU intensive code on CPU"""
     for i in xrange(self.queue_size):
@@ -291,18 +302,20 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     queue_size = 0 
     new_idx_array = np.empty(new_queue_size * 2, dtype = self.dtype_indices)
     
-    """
     cdef np.ndarray[DTYPE_8, ndim=1] new_si_idx_array
     cdef np.ndarray[DTYPE_32, ndim=1] new_nid_array
     cdef np.ndarray[DTYPE_32, ndim=1] left_children
     cdef np.ndarray[DTYPE_32, ndim=1] right_children
-    """
 
     left_children = self.left_children
     right_children = self.right_children
     new_si_idx_array = np.empty(new_queue_size, dtype = np.uint8)
     new_nid_array = np.empty(new_queue_size, dtype = np.uint32)
     
+    start_timer("get") 
+    threshold = threshold_value.get()
+    end_timer("get")
+
     """ Put the new request in queue"""
     for i in xrange(self.queue_size):
       if self.si_idx_array[i] == 1:
@@ -323,9 +336,11 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       start_idx = self.idx_array[2 * i]
       stop_idx = self.idx_array[2 * i + 1]
       
+      start_timer("memcpy")
       cuda.memcpy_dtoh(self.threshold_value_idx, si_.ptr +  
           int(row * self.stride + col) * int(self.dtype_indices.itemsize))
-      
+      end_timer("memcpy")
+
       self.feature_idx_array[nid] = row
       self.feature_threshold_array[nid] = (float(self.samples[row, self.threshold_value_idx[0]]) + self.samples[row, self.threshold_value_idx[1]]) / 2
 
@@ -371,6 +386,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.si_idx_array = new_si_idx_array
     self.nid_array = new_nid_array
     self.queue_size = queue_size
+    end_timer("bfs loop")
 
 
   def fit(self, samples, target, sorted_indices, n_samples): 
@@ -416,7 +432,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.__gpu_decorate_nodes(samples, target)
     self.__release_gpuarrays()
     
-    print self.n_nodes
     print ""
     if "gini dfs" in total_times:
       print "dfs gini: ", total_times["gini dfs"]
@@ -430,6 +445,14 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       print "bfs alloc: ", total_times["bfs alloc"]    
     if "turn_to_leaf" in total_times:
       print "turn to leaf: ", total_times["turn_to_leaf"] 
+    if "bfs loop" in total_times:
+      print "bfs loop: ", total_times["bfs loop"] 
+    if "memcpy" in total_times:
+      print "memcpy: ", total_times["memcpy"] 
+    if "get indices" in total_times:
+      print "get indices: ", total_times["get indices"] 
+    if "get" in total_times:
+      print "get: ", total_times["get"] 
     print ""
 
 
@@ -442,7 +465,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     cuda.memcpy_dtoh(si_0, self.sorted_indices_gpu.ptr)
     cuda.memcpy_dtoh(si_1, self.sorted_indices_gpu_.ptr)
     
-    #cdef int i
+    cdef int i
     for i in range(self.n_nodes):
       self.values_array[i] = self.target[sis[self.values_si_idx_array[i]][self.values_idx_array[i]]] 
     
@@ -467,8 +490,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
         if self.target[si_labels[i]] == l:
           break
       self.values_idx_array[nid] = start_idx + i
-      self.values_si_idx_array[nid] = si.idx
-    
+      self.values_si_idx_array[nid] = si.idx 
     end_timer("turn_to_leaf")
      # if n_samples < 5:
      #   start_timer("memcpy")
@@ -527,8 +549,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                 n_samples,
                 self.stride)
     
-    driver.Context.synchronize()
-    end_timer("gini dfs")
 
     self.find_min_kernel.prepared_call(
                 (1, 1),
@@ -537,6 +557,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                 self.impurity_right.ptr,
                 self.min_split.ptr,
                 self.max_features)
+    
+    driver.Context.synchronize()
+    end_timer("gini dfs")
       
     cuda.memcpy_dtoh(self.min_imp_info, self.impurity_left.ptr)
     min_right = self.min_imp_info[1] 
@@ -544,12 +567,11 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     col = int(self.min_imp_info[2]) 
     row = int(self.min_imp_info[3])
     row = subset_indices[row] 
-    print min_left + min_right, col
     return min_left, min_right, row, col
 
 
   def __get_block_size(self, n_samples):
-    n_block = int(math.ceil(float(n_samples) / 5000))
+    n_block = int(math.ceil(float(n_samples) / 2000))
     if n_block > self.MAX_BLOCK_PER_FEATURE:
       n_block = self.MAX_BLOCK_PER_FEATURE
     return n_block, int(math.ceil(float(n_samples) / n_block))
@@ -562,7 +584,27 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     row = None
     col = None
     
-    #print "n_block : %d, n_range : %d, n_samples : %d" % (n_block, n_range, n_samples)
+    start_timer("gini dfs")
+    self.scan_total_2d.prepared_call(
+          (self.max_features, n_block),
+          (self.COMPT_THREADS_PER_BLOCK, 1, 1),
+          si_gpu_in.ptr + indices_offset,
+          self.labels_gpu.ptr,
+          self.label_total_large.ptr,
+          self.subset_indices.ptr,
+          n_range,
+          n_samples,
+          self.stride)
+    
+   
+    self.scan_reduce.prepared_call(
+          (self.max_features, 1),
+          (32, 1, 1),
+          self.label_total_large.ptr,
+          n_block)
+    
+    
+    """
     self.scan_total_per_feature.prepared_call(
           (self.max_features, 1),
           (self.COMPT_THREADS_PER_BLOCK, 1, 1),
@@ -573,7 +615,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           n_range,
           n_samples,
           self.stride)
-    
+    """
+
     self.comput_total_2d.prepared_call(
          (self.max_features, n_block),
          (self.COMPT_THREADS_PER_BLOCK, 1, 1),
@@ -597,21 +640,17 @@ class RandomDecisionTreeSmall(RandomBaseTree):
          self.min_split_large.ptr,
          self.min_split.ptr,
          n_block)    
-    
-    
-    imp_total = self.impurity_left.get() + self.impurity_right.get()
+     
+    end_timer("gini dfs")
+    imp_left = self.impurity_left.get()
+    imp_right = self.impurity_right.get()
+
+    imp_total = imp_left + imp_right
     min_idx = np.argmin(imp_total)
-    print imp_total[min_idx]
-    print self.min_split.get()[min_idx]
-    """
-    print self.impurity_left
-    print self.impurity_right
-    print self.min_split
-    """
-    driver.Context.synchronize()
-    return 0,0,0,0
-    
-    print n_range, self.target.size
+    col = self.min_split.get()[min_idx]
+    row = subset_indices[min_idx]
+    min_left = imp_left[min_idx]
+    min_right = imp_right[min_idx]
     return min_left, min_right, row, col
 
 
@@ -623,14 +662,12 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       else:
         return False 
     
-    """
     cdef int n_samples
     cdef int nid
     cdef int col
     cdef int row
     cdef float min_left
     cdef float min_right
-    """
 
     n_samples = stop_idx - start_idx 
     indices_offset =  start_idx * self.dtype_indices.itemsize    
@@ -658,8 +695,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     
     cuda.memcpy_htod(self.subset_indices.ptr, subset_indices)
     
-    min_left, min_right, row, col = self.__gini_small(n_samples, indices_offset, subset_indices, si_gpu_in) 
-    return  
+    min_left, min_right, row, col = self.__gini_large(n_samples, indices_offset, subset_indices, si_gpu_in) 
     #assert min_right >= 0 and min_right <= 2
     #assert min_left >= 0 and min_left <= 2
 
