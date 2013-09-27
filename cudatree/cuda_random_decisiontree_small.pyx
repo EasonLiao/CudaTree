@@ -104,7 +104,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
         "count_total", "scan_kernel_2d.cu")
     
     self.scan_reduce = mk_kernel((n_labels, ctype_indices, self.MAX_BLOCK_PER_FEATURE), "scan_reduce", "scan_reduce.cu")
-
+    
+    self.get_thresholds = mk_kernel((ctype_indices, ctype_samples), "get_thresholds", "get_thresholds.cu")
+    
     if hasattr(self.fill_kernel, "is_prepared"):
       return
     
@@ -125,6 +127,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.reduce_2d.prepare("PPPPPi")
     self.scan_total_2d.prepare("PPPPiii")
     self.scan_reduce.prepare("Pi")
+    self.get_thresholds.prepare("PPPPPPPi")
+
 
   def __allocate_gpuarrays(self):
     if self.max_features < 4:
@@ -181,6 +185,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
     cuda.memcpy_htod(subset_indices_array_gpu.ptr, self.subset_indices_array[0:self.max_features * self.queue_size]) 
     end_timer("bfs alloc")
+    
+    #print self.queue_size
 
     start_timer("gini bfs")
     self.scan_total_bfs.prepared_call(
@@ -252,6 +258,18 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     driver.Context.synchronize()
     end_timer("reshuffle bfs")
     
+    self.get_thresholds.prepared_call(
+          (self.queue_size, 1),
+          (1, 1, 1),
+          si_idx_array_gpu.ptr,
+          self.sorted_indices_gpu.ptr,
+          self.sorted_indices_gpu_.ptr,
+          self.samples_gpu.ptr,
+          threshold_value.ptr,
+          min_feature_idx_gpu.ptr,
+          self.min_split.ptr,
+          self.stride)
+
     cdef int left_idx
     cdef int right_idx
     cdef float left_imp
@@ -336,13 +354,16 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       start_idx = self.idx_array[2 * i]
       stop_idx = self.idx_array[2 * i + 1]
       
+      """
       start_timer("memcpy")
       cuda.memcpy_dtoh(self.threshold_value_idx, si_.ptr +  
           int(row * self.stride + col) * int(self.dtype_indices.itemsize))
       end_timer("memcpy")
+      """
 
       self.feature_idx_array[nid] = row
-      self.feature_threshold_array[nid] = (float(self.samples[row, self.threshold_value_idx[0]]) + self.samples[row, self.threshold_value_idx[1]]) / 2
+      self.feature_threshold_array[nid] = threshold[i] #(float(self.samples[row, self.threshold_value_idx[0]]) + self.samples[row, self.threshold_value_idx[1]]) / 2
+      #assert self.feature_threshold_array[nid] == threshold[i]
 
       if left_imp + right_imp == 4.0:
         self.__turn_to_leaf(nid, start_idx, stop_idx - start_idx, si_)
