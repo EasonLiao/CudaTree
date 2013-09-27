@@ -35,9 +35,11 @@ __global__ void scan_reshuffle(
   IDX_DATA_TYPE reg_split_idx = split[blockIdx.x];
   IDX_DATA_TYPE n;
   
+  
   if(reg_split_idx == reg_stop_idx)
     return;
   
+
   IDX_DATA_TYPE *p_sorted_indices_in;
   IDX_DATA_TYPE *p_sorted_indices_out;
 
@@ -59,16 +61,19 @@ __global__ void scan_reshuffle(
       uint8_t side = 0;
       IDX_DATA_TYPE idx = i + threadIdx.x;
       IDX_DATA_TYPE reg_pos;
-
-      if(idx < reg_stop_idx)
-        side = tex1Dfetch(tex_mark, p_sorted_indices_in[offset + idx]);
+      IDX_DATA_TYPE si_idx; 
       
+      if(idx < reg_stop_idx){
+        si_idx = p_sorted_indices_in[offset + idx];
+        side = tex1Dfetch(tex_mark, si_idx);
+      }
+
       reg_pos = side;
 
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 300
 
       for(uint16_t s = 1; s < WARP_SIZE; s *= 2){
-        n = __shfl_up(reg_pos, s);
+        n = __shfl_up((int)reg_pos, s);
         if(lane_id >= s)
           reg_pos += n;
       }
@@ -104,12 +109,12 @@ __global__ void scan_reshuffle(
         __syncthreads();
       }
       
-        reg_pos = shared_pos_table[threadIdx.x] + last_sum;
+      reg_pos = shared_pos_table[threadIdx.x] + last_sum;
 #endif
 
-      if(i + threadIdx.x < reg_stop_idx){
+      if(idx < reg_stop_idx){
         IDX_DATA_TYPE out_pos = (side == 1)? reg_start_idx + reg_pos - 1 : reg_split_idx + 1 + idx - reg_start_idx - reg_pos;
-        p_sorted_indices_out[offset + out_pos] = p_sorted_indices_in[offset + idx];   
+        p_sorted_indices_out[offset + out_pos] = si_idx;   
       }
 
       __syncthreads();
@@ -117,7 +122,7 @@ __global__ void scan_reshuffle(
       if(threadIdx.x == blockDim.x - 1)
         last_sum = reg_pos;
     }
-
+     
     __syncthreads();
   }
 

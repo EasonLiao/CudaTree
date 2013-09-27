@@ -4,7 +4,7 @@ from setuptools import setup, find_packages, Extension
 from Cython.Distutils import build_ext
 
 
-ext_modules = [Extension("cudatree/cuda_random_decisiontree_small", ["cudatree/cuda_random_decisiontree_small.pyx"])]
+ext_modules = [Extension("cuda_random_decisiontree_small", ["cudatree/cuda_random_decisiontree_small.pyx"])]
 
 setup(
     name = "cudatree",

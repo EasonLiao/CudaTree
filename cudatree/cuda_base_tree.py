@@ -43,19 +43,29 @@ class BaseTree(object):
     value_gpu = gpuarray.to_gpu(self.values_array)
     feature_gpu = gpuarray.to_gpu(self.feature_idx_array)
     predict_res_gpu = gpuarray.zeros(n_predict, dtype=self.dtype_labels)
+    
+    n_remain = n_predict
+    n_total = n_predict 
 
-    self.predict_kernel.prepared_call(
-                  (n_predict, 1),
-                  (1, 1, 1),
-                  left_child_gpu.ptr,
-                  right_child_gpu.ptr,
-                  feature_gpu.ptr,
-                  threshold_gpu.ptr,
-                  value_gpu.ptr,
-                  predict_gpu.ptr,
-                  predict_res_gpu.ptr,
-                  self.n_features,
-                  self.n_nodes)
+    while n_remain > 0:
+      if n_predict >= 60000:
+        n_predict = 60000
+
+      self.predict_kernel.prepared_call(
+                    (n_predict, 1),
+                    (1, 1, 1),
+                    left_child_gpu.ptr,
+                    right_child_gpu.ptr,
+                    feature_gpu.ptr,
+                    threshold_gpu.ptr,
+                    value_gpu.ptr,
+                    predict_gpu[n_total - n_remain].ptr,
+                    predict_res_gpu[n_total - n_remain].ptr,
+                    self.n_features,
+                    self.n_nodes)
+      
+      n_remain -= n_predict
+      n_predict = n_remain
     
     if hasattr(self, "compt_table"):
       return np.array([self.compt_table[i] for i in predict_res_gpu.get()], dtype = self.compt_table.dtype)

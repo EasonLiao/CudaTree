@@ -43,7 +43,7 @@ __global__ void scan_reshuffle(uint8_t* mark_table,
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 300
   
     for(uint16_t s = 1; s < WARP_SIZE; s *= 2){
-      n = __shfl_up(reg_pos, s);
+      n = __shfl_up((int)reg_pos, s);
       if(lane_id >= s)
         reg_pos += n;
     }

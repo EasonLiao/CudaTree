@@ -8,7 +8,7 @@ x_test, y_test = load_data("digits")
 def test_digits():
   with timer("Cuda treelearn"):
     forest = RandomForestClassifier()
-    forest.fit(x_train, y_train, n_trees=10)
+    forest.fit(x_train, y_train, n_trees=10, bootstrap=False)
   with timer("Predict"):
     diff, total = util.test_diff(forest.predict(x_test), y_test)  
     print "%s(Wrong)/%s(Total). The error rate is %f." % (diff, total, diff/float(total))
