@@ -96,6 +96,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.comput_total_2d = mk_kernel((n_threads, n_labels, ctype_samples, ctype_labels, ctype_counts, ctype_indices, 
       self.MAX_BLOCK_PER_FEATURE), "compute", "comput_kernel_2d.cu")
 
+    self.reduce_2d = mk_kernel((ctype_indices, self.MAX_BLOCK_PER_FEATURE), "reduce", "reduce_2d.cu")
+
     if hasattr(self.fill_kernel, "is_prepared"):
       return
     
@@ -113,6 +115,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.comput_total_kernel.prepare("PPPPPPPPii")
     self.scan_total_per_feature.prepare("PPPPiii")
     self.comput_total_2d.prepare("PPPPPPPiii")
+    self.reduce_2d.prepare("PPPPPi")
 
   def __allocate_gpuarrays(self):
     if self.max_features < 4:
@@ -525,8 +528,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                 self.stride)
     
     driver.Context.synchronize()
-    return 0,0,0,0
-    driver.Context.synchronize()
     end_timer("gini dfs")
 
     self.find_min_kernel.prepared_call(
@@ -543,6 +544,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     col = int(self.min_imp_info[2]) 
     row = int(self.min_imp_info[3])
     row = subset_indices[row] 
+    print min_left + min_right, col
     return min_left, min_right, row, col
 
 
@@ -559,6 +561,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     min_right = None
     row = None
     col = None
+    
     #print "n_block : %d, n_range : %d, n_samples : %d" % (n_block, n_range, n_samples)
     self.scan_total_per_feature.prepared_call(
           (self.max_features, 1),
@@ -585,8 +588,26 @@ class RandomDecisionTreeSmall(RandomBaseTree):
          n_samples,
          self.stride)
     
+    self.reduce_2d.prepared_call(
+         (self.max_features, 1),
+         (32, 1, 1),
+         self.impurity_large.ptr,
+         self.impurity_left.ptr,
+         self.impurity_right.ptr,
+         self.min_split_large.ptr,
+         self.min_split.ptr,
+         n_block)    
     
-
+    
+    imp_total = self.impurity_left.get() + self.impurity_right.get()
+    min_idx = np.argmin(imp_total)
+    print imp_total[min_idx]
+    print self.min_split.get()[min_idx]
+    """
+    print self.impurity_left
+    print self.impurity_right
+    print self.min_split
+    """
     driver.Context.synchronize()
     return 0,0,0,0
     
@@ -637,7 +658,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     
     cuda.memcpy_htod(self.subset_indices.ptr, subset_indices)
     
-    min_left, min_right, row, col = self.__gini_large(n_samples, indices_offset, subset_indices, si_gpu_in) 
+    min_left, min_right, row, col = self.__gini_small(n_samples, indices_offset, subset_indices, si_gpu_in) 
     return  
     #assert min_right >= 0 and min_right <= 2
     #assert min_left >= 0 and min_left <= 2

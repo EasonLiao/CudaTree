@@ -10,7 +10,7 @@
 #define IDX_DATA_TYPE %s
 #define MAX_BLOCK_PER_FEATURE %d
 
-__device__  float calc_imp_right(COUNT_DATA_TYPE label_previous[MAX_NUM_LABELS], COUNT_DATA_TYPE label_now[MAX_NUM_LABELS], int total_size){
+__device__  float calc_imp_right(COUNT_DATA_TYPE* label_previous, COUNT_DATA_TYPE* label_now, IDX_DATA_TYPE total_size){
   float sum = 0.0; 
   for(uint16_t i = 0; i < MAX_NUM_LABELS; ++i){
     float count = label_now[i] - label_previous[i];
@@ -21,7 +21,7 @@ __device__  float calc_imp_right(COUNT_DATA_TYPE label_previous[MAX_NUM_LABELS],
   return 1.0 - (sum / denom); 
 }
 
-__device__  float calc_imp_left(COUNT_DATA_TYPE label_now[MAX_NUM_LABELS], int total_size){
+__device__  float calc_imp_left(COUNT_DATA_TYPE label_now[MAX_NUM_LABELS], IDX_DATA_TYPE total_size){
   float sum = 0.0;
   for(uint16_t i = 0; i < MAX_NUM_LABELS; ++i){
     float count = label_now[i];
@@ -99,7 +99,7 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
     
   if(threadIdx.x == 0){
     impurity[blockIdx.x * MAX_BLOCK_PER_FEATURE * 2 + 2 * blockIdx.y] = reg_imp_left;
-    impurity[blockIdx.x * MAX_BLOCK_PER_FEATURE * 2 + 2 * blockIdx.y] = reg_imp_right;
+    impurity[blockIdx.x * MAX_BLOCK_PER_FEATURE * 2 + 2 * blockIdx.y + 1] = reg_imp_right;
     split[blockIdx.x * MAX_BLOCK_PER_FEATURE + blockIdx.y] = reg_min_split;
   }
 }
