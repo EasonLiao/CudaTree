@@ -350,10 +350,10 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           new_si_idx_array[queue_size] = si_idx
           new_nid_array[queue_size] = left_nid
           
-          start_timer("cpy indices")
+          #start_timer("cpy indices")
           self.subset_indices_array[queue_size * max_features : 
             (queue_size + 1) * max_features] = self.get_indices()
-          end_timer("cpy indices")
+          #end_timer("cpy indices")
           queue_size += 1
       else:
         self.__turn_to_leaf(left_nid, start_idx, 1, si_idx)
@@ -368,10 +368,10 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           new_si_idx_array[queue_size] = si_idx
           new_nid_array[queue_size] = right_nid
           
-          start_timer("cpy indices")
+          #start_timer("cpy indices")
           self.subset_indices_array[queue_size * max_features : 
             (queue_size + 1) * max_features] = self.get_indices()
-          end_timer("cpy indices")
+          #end_timer("cpy indices")
           queue_size += 1
       else:
         self.__turn_to_leaf(right_nid, col + 1, 1, si_idx)
