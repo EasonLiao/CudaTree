@@ -45,11 +45,11 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     #ret  = np.arange(self.max_features, dtype=self.dtype_indices)
     #end_timer("get indices")
     #return ret
-
     if self.max_features < self.n_features / 2:
       return np.array(random.sample(xrange(self.n_features), self.max_features), dtype=self.dtype_indices)
     else:
       return np.random.permutation(self.n_features)[:self.max_features].astype(self.dtype_indices)
+
 
   def __compile_kernels(self):
     ctype_indices = dtype_to_ctype(self.dtype_indices)
@@ -349,8 +349,11 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           new_idx_array[2 * queue_size + 1] = col + 1
           new_si_idx_array[queue_size] = si_idx
           new_nid_array[queue_size] = left_nid
+          
+          start_timer("cpy indices")
           self.subset_indices_array[queue_size * max_features : 
             (queue_size + 1) * max_features] = self.get_indices()
+          end_timer("cpy indices")
           queue_size += 1
       else:
         self.__turn_to_leaf(left_nid, start_idx, 1, si_idx)
@@ -364,8 +367,11 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           new_idx_array[2 * queue_size + 1] = stop_idx
           new_si_idx_array[queue_size] = si_idx
           new_nid_array[queue_size] = right_nid
+          
+          start_timer("cpy indices")
           self.subset_indices_array[queue_size * max_features : 
             (queue_size + 1) * max_features] = self.get_indices()
+          end_timer("cpy indices")
           queue_size += 1
       else:
         self.__turn_to_leaf(right_nid, col + 1, 1, si_idx)
@@ -551,7 +557,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     row = None
     col = None
     
-    start_timer("gini dfs")
+    #start_timer("gini dfs")
     self.scan_total_2d.prepared_call(
           (self.max_features, n_block),
           (self.COMPT_THREADS_PER_BLOCK, 1, 1),
@@ -603,8 +609,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
          self.min_split_large.ptr,
          self.min_split.ptr,
          n_block)    
-     
-    end_timer("gini dfs")
+    
+    #end_timer("gini dfs")
     imp_left = self.impurity_left.get()
     imp_right = self.impurity_right.get()
 
@@ -630,7 +636,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     cdef int row
     cdef float min_left
     cdef float min_right
-
+    
     n_samples = stop_idx - start_idx 
     indices_offset =  start_idx * self.dtype_indices.itemsize    
     
@@ -638,11 +644,11 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.n_nodes += 1
 
     if check_terminate():
-      self.__turn_to_leaf(nid, start_idx, 1, si_gpu_in)
+      self.__turn_to_leaf(nid, start_idx, 1, si_gpu_in.idx)
       return
     
     if n_samples < self.min_samples_split:
-      self.__turn_to_leaf(nid, start_idx, n_samples, si_gpu_in)
+      self.__turn_to_leaf(nid, start_idx, n_samples, si_gpu_in.idx)
       return
     
     if n_samples <= self.bfs_threshold:
@@ -658,9 +664,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     cuda.memcpy_htod(self.subset_indices.ptr, subset_indices)
     
     min_left, min_right, row, col = self.__gini_large(n_samples, indices_offset, subset_indices, si_gpu_in) 
-
     if min_left + min_right == 4:
-      self.__turn_to_leaf(nid, start_idx, n_samples, si_gpu_in) 
+      self.__turn_to_leaf(nid, start_idx, n_samples, si_gpu_in.idx) 
       return
 
     
@@ -669,7 +674,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.feature_idx_array[nid] = row
     self.feature_threshold_array[nid] = (float(self.samples[row, self.threshold_value_idx[0]]) + self.samples[row, self.threshold_value_idx[1]]) / 2
     
-    start_timer("reshuffle dfs")
+    #start_timer("reshuffle dfs")
     self.fill_kernel.prepared_call(
                       (1, 1),
                       (512, 1, 1),
@@ -692,7 +697,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                       self.stride) 
 
     #driver.Context.synchronize()
-    end_timer("reshuffle dfs")
+    #end_timer("reshuffle dfs")
 
     subset_indices_left = self.get_indices()
     subset_indices_right = self.get_indices()
