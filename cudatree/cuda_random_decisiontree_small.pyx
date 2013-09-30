@@ -8,12 +8,13 @@ from cuda_random_base_tree import RandomBaseTree
 from pycuda import driver
 import random
 from util import show_timings
-cimport numpy as np
 
+cimport numpy as np
 ctypedef np.uint8_t DTYPE_8
 ctypedef np.uint32_t DTYPE_32
 ctypedef np.uint16_t DTYPE_16
 ctypedef np.float32_t FLOAT_32
+
 
 class RandomDecisionTreeSmall(RandomBaseTree): 
   BFS_THREADS = 64
@@ -40,10 +41,10 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.bfs_threshold = bfs_threshold
   
   def get_indices(self):
-    start_timer("get indices")
-    ret  = np.arange(self.max_features, dtype=self.dtype_indices)
-    end_timer("get indices")
-    return ret
+    #start_timer("get indices")
+    #ret  = np.arange(self.max_features, dtype=self.dtype_indices)
+    #end_timer("get indices")
+    #return ret
 
     if self.max_features < self.n_features / 2:
       return np.array(random.sample(xrange(self.n_features), self.max_features), dtype=self.dtype_indices)
@@ -296,13 +297,14 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     cdef np.ndarray[FLOAT_32, ndim=1] feature_threshold_array = self.feature_threshold_array
     cdef np.ndarray[DTYPE_32, ndim=1] nid_array = self.nid_array
     cdef np.ndarray[FLOAT_32, ndim=1] imp_min = impurity_gpu.get()
-    cdef np.ndarray[DTYPE_32, ndim=1] min_split = self.min_split.get()
+    cdef np.ndarray[DTYPE_32, ndim=1] min_split = self.min_split.get().astype(np.uint32)
     cdef np.ndarray[DTYPE_16, ndim=1] feature_idx = min_feature_idx_gpu.get()
     cdef np.ndarray[DTYPE_8, ndim=1] si_idx_array = self.si_idx_array
+    cdef np.ndarray[FLOAT_32, ndim = 1] threshold
     
 
     start_timer("get") 
-    cdef np.ndarray[FLOAT_32, ndim = 1] threshold = threshold_value.get()
+    threshold = threshold_value.get()
     end_timer("get")
     
     start_timer("bfs loop")
