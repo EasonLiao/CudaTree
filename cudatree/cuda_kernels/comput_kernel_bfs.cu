@@ -37,7 +37,7 @@ __global__ void compute(
                         LABEL_DATA_TYPE *labels,
                         IDX_DATA_TYPE *sorted_indices_1,
                         IDX_DATA_TYPE *sorted_indices_2,
-                        IDX_DATA_TYPE *begin_stop_idx,
+                        uint32_t *begin_stop_idx,
                         uint8_t *si_idx,
                         COUNT_DATA_TYPE *label_total,
                         IDX_DATA_TYPE *subset_indices, 

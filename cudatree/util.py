@@ -2,6 +2,7 @@ import time
 import numpy as np
 from pycuda.compiler import SourceModule
 from os import path
+import operator
 
 _kernel_cache = {}
 
@@ -85,3 +86,15 @@ def end_timer(name):
   total = total_times.get(name, 0)
   total += time.time() - start_times[name]
   total_times[name] = total
+
+def show_timings(limit = 100):
+  tables = sorted(total_times.iteritems(),  key = operator.itemgetter(1), reverse = True) 
+  idx = 0
+  print "---------Timings---------"
+  for key, value in tables:
+    print key.ljust(15), ":", value
+    idx += 1
+    if idx == limit:
+      break
+
+  print "-------------------------"

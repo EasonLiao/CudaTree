@@ -9,7 +9,7 @@ __global__ void fill_table(
                           IDX_DATA_TYPE *sorted_indices_2,
                           uint8_t *si_idx,
                           uint16_t *feature_idx,
-                          IDX_DATA_TYPE *begin_end_idx,
+                          uint32_t  *begin_end_idx,
                           IDX_DATA_TYPE *min_split,
                           uint8_t *mark_table,
                           int stride
