@@ -154,7 +154,9 @@ class RandomForestClassifier(object):
       si, n_samples = self.__get_sorted_indices()
       with timer("Tree %s" % (i,)):
         tree.fit(samples, target, si, n_samples)
-    
+      
+      print ""
+
     self.sorted_indices = None
     self.mark_table = None
 

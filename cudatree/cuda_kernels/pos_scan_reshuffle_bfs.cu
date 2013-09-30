@@ -14,7 +14,7 @@ __global__ void scan_reshuffle(
                           uint8_t* si_idx,
                           IDX_DATA_TYPE* sorted_indices_1,
                           IDX_DATA_TYPE* sorted_indices_2,
-                          IDX_DATA_TYPE* begin_end_idx,
+                          uint32_t* begin_end_idx,
                           IDX_DATA_TYPE* split,
                           uint32_t n_features,
                           uint32_t stride
