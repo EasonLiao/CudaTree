@@ -27,7 +27,7 @@ CudaTree is writen for Python 2.7 and depends on:
 * [Scikit-learn](http://scikit-learn.org/stable/)
 * [Numpy](http://www.scipy.org/install.html)
 * [PyCUDA](http://documen.tician.de/pycuda/#)
-* [Cython](http://cython.org)
+* [Parakeet](https://pypi.python.org/pypi/parakeet/0.16.2)
 
 
 ### Limitations:
