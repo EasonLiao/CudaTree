@@ -4,7 +4,7 @@ from setuptools import setup, find_packages, Extension
 from Cython.Distutils import build_ext
 
 
-ext_modules = [Extension("cuda_random_decisiontree_small", ["cudatree/cuda_random_decisiontree_small.pyx"])]
+#ext_modules = [Extension("cuda_random_decisiontree_small", ["cudatree/cuda_random_decisiontree_small.pyx"])]
 
 setup(
     name = "cudatree",
@@ -20,13 +20,13 @@ Building Decision Tree on Cuda.
     packages = find_packages() + ['cudatree.test'],
     package_dir = {'cudatree.test' : './test'},
     package_data = {'cudatree' : ['cuda_kernels/*.cu']},
-    ext_modules = ext_modules,
-    cmdclass = {'build_ext' : build_ext},
+    #ext_modules = ext_modules,
+    #cmdclass = {'build_ext' : build_ext},
     requires = [
         'numpy',
         'sklearn',
         'pycuda',
-        "cython"
+        "parakeet"
       ],
     classifiers=['Development Status :: 3 - Alpha',
                   'Topic :: Software Development :: Libraries',
