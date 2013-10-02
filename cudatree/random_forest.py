@@ -2,7 +2,7 @@ import numpy as np
 from cuda_random_decisiontree_small import RandomDecisionTreeSmall
 from util import timer, get_best_dtype, dtype_to_ctype, mk_kernel, mk_tex_kernel
 from pycuda import gpuarray
-
+from util import start_timer, end_timer, show_timings
 
 class RandomForestClassifier(object):
   """A random forest classifier.
@@ -175,8 +175,18 @@ class RandomForestClassifier(object):
     """
     x = np.require(x.copy(), requirements = "C")
     res = []
+    
+    start_timer("predict kernel")
     for tree in self.forest:
       res.append(tree.gpu_predict(x))
+    end_timer("predict kernel")
+
+    start_timer("predict loop")
     res = np.array(res)
-    return np.array([np.argmax(np.bincount(res[:,i])) for i in xrange(res.shape[1])]) 
+    res =  np.array([np.argmax(np.bincount(res[:,i])) for i in xrange(res.shape[1])]) 
+    end_timer("predict loop")
+    
+    show_timings()
+    return res
+
 
