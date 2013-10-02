@@ -301,7 +301,12 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.min_split.ptr,
           self.n_features,
           self.stride)
-     
+    
+    max_features = self.max_features
+    old_queue_size = self.queue_size
+    for i in range(old_queue_size):
+      self.subset_indices_array[i * max_features : (i + 1) * max_features] = self.get_indices() 
+
     self.get_thresholds.prepared_call(
           (self.queue_size, 1),
           (1, 1, 1),
@@ -313,10 +318,10 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           min_feature_idx_gpu.ptr,
           self.min_split.ptr,
           self.stride)
-     
+    
     queue_size = 0
     n_nodes = self.n_nodes
-    max_features = self.max_features
+    #max_features = self.max_features
     new_idx_array = np.empty(self.queue_size * 2 * 2, dtype = np.uint32)
     idx_array = self.idx_array
     new_si_idx_array = np.empty(self.queue_size * 2, dtype = np.uint8)
@@ -339,10 +344,11 @@ class RandomDecisionTreeSmall(RandomBaseTree):
         self.min_samples_split, self.values_idx_array, self.values_si_idx_array)
     end_timer("new bfs")
     
-    start_timer("cpy indices")
-    for i in range(self.queue_size):
-      self.subset_indices_array[i * max_features : (i + 1) * max_features] = self.get_indices() 
-    end_timer("cpy indices")
+    if self.queue_size > old_queue_size:
+      start_timer("cpy indices")
+      for i in range(old_queue_size, self.queue_size):
+        self.subset_indices_array[i * max_features : (i + 1) * max_features] = self.get_indices() 
+      end_timer("cpy indices")
 
     self.n_nodes = int(self.n_nodes)
     self.queue_size = int(self.queue_size)
