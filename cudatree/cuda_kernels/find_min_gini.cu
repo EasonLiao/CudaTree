@@ -15,7 +15,7 @@ __global__ void find_min_imp(
   float reg_imp_left;
   float reg_imp_right;
   COUNT_DATA_TYPE reg_min_idx = 0;
-  int reg_min_feature_idx;
+  int reg_min_feature_idx = 0;
 
   reg_imp_left = 2.0;
   reg_imp_right = 2.0;

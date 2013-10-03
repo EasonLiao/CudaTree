@@ -463,6 +463,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     min_left = self.min_imp_info[0] 
     col = int(self.min_imp_info[2]) 
     row = int(self.min_imp_info[3])
+
     row = subset_indices[row] 
     return min_left, min_right, row, col
 
