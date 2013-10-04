@@ -12,13 +12,27 @@
 __global__ void count_total(
                         IDX_DATA_TYPE *sorted_indices,
                         LABEL_DATA_TYPE *labels, 
-                        COUNT_DATA_TYPE *label_total,
+                        COUNT_DATA_TYPE *label_total_2d,
                         IDX_DATA_TYPE *subset_indices,
                         int n_range,
                         int n_samples,
                         int stride
                         ){
    
+  /* 
+    Fill the label_total_2d array for each feature and each range of that feature. 
+    Inputs: 
+      - sorted_indices : sorted indices.
+      - labels : labels.
+      - subset_indices : randomly generated featureindices. determine which feature we should count. 
+      - n_range : the range of each block is responsible for.
+      - n_samples : number of samples for this node.
+      - stride : the stride of sorted_indices.
+  
+    Outputs:
+      - label_total_2d : the label total for each range.
+  */
+
   __shared__ COUNT_DATA_TYPE shared_count[MAX_NUM_LABELS];
   __shared__ LABEL_DATA_TYPE shared_labels[THREADS_PER_BLOCK]; 
   uint32_t offset = blockIdx.x * MAX_NUM_LABELS * (MAX_BLOCK_PER_FEATURE + 1) + (blockIdx.y + 1) * MAX_NUM_LABELS;
@@ -51,5 +65,5 @@ __global__ void count_total(
   
   
   for(uint16_t i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x)
-    label_total[offset + i] = shared_count[i];
+    label_total_2d[offset + i] = shared_count[i];
 }

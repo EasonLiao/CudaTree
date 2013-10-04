@@ -14,6 +14,20 @@ __global__ void reduce(
                       IDX_DATA_TYPE *split_1d, 
                       int n_block
                       ){
+  /* 
+    Reduce the 2d impurity into 1d. Find best gini score and split index for each feature.
+    The previous kernel produces the best gini score and best split for each range of the feature.
+    Inputs: 
+      - impurity_2d : the best gini score for each range of feature produced by previous kernel.
+      - split_2d : the best split index of each range produced by previous kernel.
+      - n_block : number of ranges.
+    
+    Outputs:
+      - impurity_left : the best gini score on left part for the feature.
+      - impurity_right : the best gini score on right part for the feature.
+      - split_1d : the best split index of the who feature.
+  */
+
   __shared__ float shared_imp[MAX_BLOCK_PER_FEATURE * 2];
   uint32_t imp_offset = blockIdx.x * MAX_BLOCK_PER_FEATURE * 2;
   uint32_t split_offset = blockIdx.x * MAX_BLOCK_PER_FEATURE;

@@ -56,7 +56,6 @@ class BaseTree(object):
     predict_res_gpu = gpuarray.zeros(n_predict, dtype=self.dtype_labels)
     
     grid = get_grid_size(n_predict)
-    print grid
     self.predict_kernel.prepared_call(
                   grid,
                   (1, 1, 1),
