@@ -2,6 +2,14 @@ import numpy as np
 from util import get_best_dtype
 from pycuda import gpuarray
 import math
+from util import start_timer, end_timer
+from parakeet import jit
+from pycuda import driver
+
+@jit
+def convert_result(tran_table, res):
+    res =  np.array([tran_table[i] for i in res])
+    return res 
 
 class BaseTree(object):
   def __init__(self):
@@ -37,7 +45,7 @@ class BaseTree(object):
 
   def gpu_predict(self, inputs):
     def get_grid_size(n_samples):
-      MAX_GRID = 65536
+      MAX_GRID = 65535
       gy = 1
       gx = MAX_GRID
       if gx >= n_samples:
@@ -56,6 +64,11 @@ class BaseTree(object):
     predict_res_gpu = gpuarray.zeros(n_predict, dtype=self.dtype_labels)
     
     grid = get_grid_size(n_predict)
+    n_samples_per_block = 512 / 32
+    n_block = int(math.ceil(float(n_predict) / n_samples_per_block))
+    print grid
+    
+    start_timer("p kernel")
     self.predict_kernel.prepared_call(
                   grid,
                   (1, 1, 1),
@@ -69,8 +82,15 @@ class BaseTree(object):
                   self.n_features,
                   n_predict)
     
+    driver.Context.synchronize()
+    end_timer("p kernel")
+
     if hasattr(self, "compt_table"):
-      return np.array([self.compt_table[i] for i in predict_res_gpu.get()], dtype = self.compt_table.dtype)
+      #start_timer("tran")   
+      #res =  np.array([self.compt_table[i] for i in predict_res_gpu.get()], dtype = self.compt_table.dtype)
+      #end_timer("tran")
+      #return res
+      return convert_result(self.compt_table, predict_res_gpu.get()) 
     else:
       return predict_res_gpu.get()
 

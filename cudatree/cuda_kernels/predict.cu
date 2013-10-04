@@ -5,6 +5,9 @@
 #define SAMPLE_DATA_TYPE %s
 #define LABEL_DATA_TYPE %s
 
+#define WARP_SIZE 32
+#define WARP_MASK 0x1f
+
 __global__ void predict(uint32_t *left_child_arr,
                         uint32_t *right_child_arr,
                         uint16_t *feature_array,
@@ -29,7 +32,14 @@ __global__ void predict(uint32_t *left_child_arr,
     Outputs:
       - predict_res : the result of the prediction
   */
+  int lane_id = threadIdx.x & WARP_MASK;
+  int warp_id = threadIdx.x / WARP_SIZE;
+
+  //if(lane_id != 0)
+  //  return;
+    
   int predict_idx = blockIdx.x * gridDim.y + blockIdx.y;
+  //int predict_idx = blockIdx.x * 16 + warp_id;
   int offset = predict_idx * n_features;
   int idx = 0; 
   
@@ -56,12 +66,4 @@ __global__ void predict(uint32_t *left_child_arr,
   }
 
 }
-
-
-
-
-
-
-
-
 
