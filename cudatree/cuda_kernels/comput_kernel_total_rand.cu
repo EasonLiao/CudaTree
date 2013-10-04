@@ -57,16 +57,18 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
       shared_count[i] = 0;
       shared_count_total[i] = label_total[i];
   }
-   
-  for(IDX_DATA_TYPE i = threadIdx.x; i < n_samples; i += blockDim.x){ 
+  
+  IDX_DATA_TYPE end_pos = n_samples - 1;
+
+  for(IDX_DATA_TYPE i = threadIdx.x; i < end_pos; i += blockDim.x){ 
     IDX_DATA_TYPE idx = sorted_indices[offset + i];
     shared_labels[threadIdx.x] = labels[idx]; 
     shared_samples[threadIdx.x] = samples[offset + idx];
 
     __syncthreads();
-     
+    
     if(threadIdx.x == 0){
-      stop_pos = (i + blockDim.x < n_samples - 1)? blockDim.x : n_samples - i - 1;
+      stop_pos = (i + blockDim.x < end_pos)? blockDim.x : end_pos - i;
       
         for(IDX_DATA_TYPE t = 0; t < stop_pos; ++t){
           shared_count[shared_labels[t]]++;

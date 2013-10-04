@@ -463,8 +463,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     min_left = self.min_imp_info[0] 
     col = int(self.min_imp_info[2]) 
     row = int(self.min_imp_info[3])
-
     row = subset_indices[row] 
+
     return min_left, min_right, row, col
 
 
@@ -523,15 +523,33 @@ class RandomDecisionTreeSmall(RandomBaseTree):
          self.min_split.ptr,
          n_block)    
     
+    self.find_min_kernel.prepared_call(
+                (1, 1),
+                (32, 1, 1),
+                self.impurity_left.ptr,
+                self.impurity_right.ptr,
+                self.min_split.ptr,
+                self.max_features)
+    
+    cuda.memcpy_dtoh(self.min_imp_info, self.impurity_left.ptr)
+    min_right = self.min_imp_info[1] 
+    min_left = self.min_imp_info[0] 
+    col = int(self.min_imp_info[2]) 
+    row = int(self.min_imp_info[3])
+    row = subset_indices[row] 
+    
+    """
     imp_left = self.impurity_left.get()
     imp_right = self.impurity_right.get()
-
     imp_total = imp_left + imp_right
+    imp_total = imp_total[:self.max_features]
     min_idx = np.argmin(imp_total)
     col = self.min_split.get()[min_idx]
     row = subset_indices[min_idx]
     min_left = imp_left[min_idx]
     min_right = imp_right[min_idx]
+    """
+
     return min_left, min_right, row, col
 
 
