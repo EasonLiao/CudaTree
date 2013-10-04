@@ -13,25 +13,36 @@ __global__ void predict(uint32_t *left_child_arr,
                         SAMPLE_DATA_TYPE *predict_array,
                         LABEL_DATA_TYPE *predict_res,
                         int n_features,
-                        int n_nodes
+                        int n_predict
                         ) {
   /* 
     Predict new labels for previously unseen data points. 
     Inputs: 
       - left_child_arr : what's the index of the left child node? 
       - right_child_arr : what's the index of the right child node? 
-      - threshold_array : 
-  */ 
-  int offset = blockIdx.x * n_features;
+      - threshold_array : what's the threshold of a given internal node?
+      - value_array : what's the value of a give leaf?
+      - predict_array : the input samples need to be predicted.
+      - n_features : the number of features the samples have.
+      - n_predict : number of samples need to be predicted.
+    
+    Outputs:
+      - predict_res : the result of the prediction
+  */
+  int predict_idx = blockIdx.x * gridDim.y + blockIdx.y;
+  int offset = predict_idx * n_features;
   int idx = 0; 
   
+  if(predict_idx >= n_predict)
+    return;
+
   while(true){
     uint32_t left_idx = left_child_arr[idx];
     uint32_t right_idx = right_child_arr[idx];
     
     if(left_idx == 0 || right_idx == 0){
       //Means it's on leaf.
-      predict_res[blockIdx.x] = value_array[idx];
+      predict_res[predict_idx] = value_array[idx];
       return;
     }
     

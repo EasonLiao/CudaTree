@@ -1,6 +1,7 @@
 import numpy as np
 from util import get_best_dtype
 from pycuda import gpuarray
+import math
 
 class BaseTree(object):
   def __init__(self):
@@ -35,6 +36,16 @@ class BaseTree(object):
         return self.value_array[idx]
 
   def gpu_predict(self, inputs):
+    def get_grid_size(n_samples):
+      MAX_GRID = 65536
+      gy = 1
+      gx = MAX_GRID
+      if gx >= n_samples:
+        gx = n_samples
+      else:
+        gy = int(math.ceil(float(n_samples) / gx))
+      return (gx, gy)
+    
     n_predict = inputs.shape[0]    
     predict_gpu = gpuarray.to_gpu(inputs)
     left_child_gpu = gpuarray.to_gpu(self.left_children)
@@ -44,28 +55,20 @@ class BaseTree(object):
     feature_gpu = gpuarray.to_gpu(self.feature_idx_array)
     predict_res_gpu = gpuarray.zeros(n_predict, dtype=self.dtype_labels)
     
-    n_remain = n_predict
-    n_total = n_predict 
-
-    while n_remain > 0:
-      if n_predict >= 60000:
-        n_predict = 60000
-
-      self.predict_kernel.prepared_call(
-                    (n_predict, 1),
-                    (1, 1, 1),
-                    left_child_gpu.ptr,
-                    right_child_gpu.ptr,
-                    feature_gpu.ptr,
-                    threshold_gpu.ptr,
-                    value_gpu.ptr,
-                    predict_gpu[n_total - n_remain].ptr,
-                    predict_res_gpu[n_total - n_remain].ptr,
-                    self.n_features,
-                    self.n_nodes)
-      
-      n_remain -= n_predict
-      n_predict = n_remain
+    grid = get_grid_size(n_predict)
+    print grid
+    self.predict_kernel.prepared_call(
+                  grid,
+                  (1, 1, 1),
+                  left_child_gpu.ptr,
+                  right_child_gpu.ptr,
+                  feature_gpu.ptr,
+                  threshold_gpu.ptr,
+                  value_gpu.ptr,
+                  predict_gpu.ptr,
+                  predict_res_gpu.ptr,
+                  self.n_features,
+                  n_predict)
     
     if hasattr(self, "compt_table"):
       return np.array([self.compt_table[i] for i in predict_res_gpu.get()], dtype = self.compt_table.dtype)
