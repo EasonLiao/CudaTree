@@ -6,10 +6,6 @@ from util import start_timer, end_timer
 from parakeet import jit
 from pycuda import driver
 
-@jit
-def convert_result(tran_table, res):
-    res =  np.array([tran_table[i] for i in res])
-    return res 
 
 class BaseTree(object):
   def __init__(self):
@@ -45,13 +41,14 @@ class BaseTree(object):
 
   def gpu_predict(self, inputs):
     def get_grid_size(n_samples):
+      blocks_need = int(math.ceil(float(n_samples) / 16))
       MAX_GRID = 65535
       gy = 1
       gx = MAX_GRID
-      if gx >= n_samples:
-        gx = n_samples
+      if gx >= blocks_need:
+        gx = blocks_need
       else:
-        gy = int(math.ceil(float(n_samples) / gx))
+        gy = int(math.ceil(float(blocks_need) / gx))
       return (gx, gy)
     
     n_predict = inputs.shape[0]    
@@ -64,14 +61,10 @@ class BaseTree(object):
     predict_res_gpu = gpuarray.zeros(n_predict, dtype=self.dtype_labels)
     
     grid = get_grid_size(n_predict)
-    n_samples_per_block = 512 / 32
-    n_block = int(math.ceil(float(n_predict) / n_samples_per_block))
-    print grid
     
-    start_timer("p kernel")
     self.predict_kernel.prepared_call(
                   grid,
-                  (1, 1, 1),
+                  (512, 1, 1),
                   left_child_gpu.ptr,
                   right_child_gpu.ptr,
                   feature_gpu.ptr,
@@ -80,19 +73,9 @@ class BaseTree(object):
                   predict_gpu.ptr,
                   predict_res_gpu.ptr,
                   self.n_features,
-                  n_predict)
-    
-    driver.Context.synchronize()
-    end_timer("p kernel")
+                  n_predict) 
 
-    if hasattr(self, "compt_table"):
-      #start_timer("tran")   
-      #res =  np.array([self.compt_table[i] for i in predict_res_gpu.get()], dtype = self.compt_table.dtype)
-      #end_timer("tran")
-      #return res
-      return convert_result(self.compt_table, predict_res_gpu.get()) 
-    else:
-      return predict_res_gpu.get()
+    return predict_res_gpu.get()
 
   def _find_most_common_label(self, x):
     return np.argmax(np.bincount(x))

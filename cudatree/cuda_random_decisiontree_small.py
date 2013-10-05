@@ -112,10 +112,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.bfs_threshold = bfs_threshold
   
   def get_indices(self):
-    if self.max_features < self.n_features / 2:
-      return np.array(random.sample(xrange(self.n_features), self.max_features), dtype=self.dtype_indices)
-    else:
-      return np.random.permutation(self.n_features)[:self.max_features].astype(self.dtype_indices)
+    return np.array(random.sample(xrange(self.n_features), self.max_features), dtype=self.dtype_indices)
 
   def __compile_kernels(self):
     ctype_indices = dtype_to_ctype(self.dtype_indices)
@@ -155,9 +152,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
         "scan_reshuffle", "tex_mark", "pos_scan_reshuffle_bfs.cu")
     self.mark_table.bind_to_texref_ext(tex_ref) 
     
-    self.scan_total_per_feature = mk_kernel((n_threads, n_labels, ctype_labels, ctype_counts, ctype_indices,
-      self.MAX_BLOCK_PER_FEATURE), "count_total", "scan_kernel_total_per_feature.cu")
-
     self.comput_total_2d = mk_kernel((n_threads, n_labels, ctype_samples, ctype_labels, ctype_counts, ctype_indices, 
       self.MAX_BLOCK_PER_FEATURE), "compute", "comput_kernel_2d.cu")
 
@@ -184,7 +178,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.fill_bfs.prepare("PPPPPPPi")
     self.reshuffle_bfs.prepare("PPPPPPii")
     self.comput_total_kernel.prepare("PPPPPPPPii")
-    self.scan_total_per_feature.prepare("PPPPiii")
     self.comput_total_2d.prepare("PPPPPPPiii")
     self.reduce_2d.prepare("PPPPPi")
     self.scan_total_2d.prepare("PPPPiii")
@@ -321,7 +314,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     
     queue_size = 0
     n_nodes = self.n_nodes
-    #max_features = self.max_features
     new_idx_array = np.empty(self.queue_size * 2 * 2, dtype = np.uint32)
     idx_array = self.idx_array
     new_si_idx_array = np.empty(self.queue_size * 2, dtype = np.uint8)
@@ -337,18 +329,14 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     si_idx_array = self.si_idx_array 
     threshold = threshold_value.get()
     
-    start_timer("new bfs")
     self.n_nodes, self.queue_size, self.idx_array, self.si_idx_array, self.nid_array = bfs_loop(self.queue_size, self.n_nodes, 
         self.max_features, new_idx_array, idx_array, new_si_idx_array, new_nid_array, left_children, right_children,
         feature_idx_array, feature_threshold_array, nid_array, imp_min, min_split, feature_idx, si_idx_array, self.subset_indices_array, threshold,
         self.min_samples_split, self.values_idx_array, self.values_si_idx_array)
-    end_timer("new bfs")
     
     if self.queue_size > old_queue_size:
-      start_timer("cpy indices")
       for i in range(old_queue_size, self.queue_size):
         self.subset_indices_array[i * max_features : (i + 1) * max_features] = self.get_indices() 
-      end_timer("cpy indices")
 
     self.n_nodes = int(self.n_nodes)
     self.queue_size = int(self.queue_size)
@@ -394,12 +382,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.n_nodes = 0 
     self.root = self.__dfs_construct(1, 1.0, 0, self.n_samples, self.sorted_indices_gpu, self.sorted_indices_gpu_, self.get_indices())  
     self.__bfs_construct() 
-    start_timer("dec")
     self.__gpu_decorate_nodes(samples, target)
-    end_timer("dec")
     self.__release_gpuarrays() 
-    show_timings()
-
 
   def __gpu_decorate_nodes(self, samples, labels):
     si_0 = np.empty(self.n_samples, dtype = self.dtype_indices)
@@ -537,19 +521,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     col = int(self.min_imp_info[2]) 
     row = int(self.min_imp_info[3])
     row = subset_indices[row] 
-    
-    """
-    imp_left = self.impurity_left.get()
-    imp_right = self.impurity_right.get()
-    imp_total = imp_left + imp_right
-    imp_total = imp_total[:self.max_features]
-    min_idx = np.argmin(imp_total)
-    col = self.min_split.get()[min_idx]
-    row = subset_indices[min_idx]
-    min_left = imp_left[min_idx]
-    min_right = imp_right[min_idx]
-    """
-
     return min_left, min_right, row, col
 
 

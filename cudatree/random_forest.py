@@ -3,6 +3,12 @@ from cuda_random_decisiontree_small import RandomDecisionTreeSmall
 from util import timer, get_best_dtype, dtype_to_ctype, mk_kernel, mk_tex_kernel
 from pycuda import gpuarray
 from util import start_timer, end_timer, show_timings
+from parakeet import jit
+
+@jit
+def convert_result(tran_table, res):
+    return np.array([tran_table[i] for i in res])
+
 
 class RandomForestClassifier(object):
   """A random forest classifier.
@@ -153,8 +159,7 @@ class RandomForestClassifier(object):
     for i, tree in enumerate(self.forest):
       si, n_samples = self.__get_sorted_indices()
       with timer("Tree %s" % (i,)):
-        tree.fit(samples, target, si, n_samples)
-      
+        tree.fit(samples, target, si, n_samples)   
       print ""
 
     self.sorted_indices = None
@@ -173,20 +178,16 @@ class RandomForestClassifier(object):
     y: Array of shape [n_samples].
         The predicted labels.
     """
+
     x = np.require(x.copy(), requirements = "C")
-    res = []
-    
-    start_timer("predict kernel")
-    for tree in self.forest:
-      res.append(tree.gpu_predict(x))
-    end_timer("predict kernel")
+    res = np.ndarray((len(self.forest), self.stride), dtype = self.dtype_labels)
 
-    start_timer("predict loop")
-    res = np.array(res)
+    for i, tree in enumerate(self.forest):
+      res[i] =  tree.gpu_predict(x)
+
     res =  np.array([np.argmax(np.bincount(res[:,i])) for i in xrange(res.shape[1])]) 
-    end_timer("predict loop")
-    
-    show_timings()
-    return res
+    if hasattr(self, "compt_table"):
+      res = convert_result(self.compt_table, res)
 
+    return res
 
