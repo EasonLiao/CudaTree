@@ -71,7 +71,7 @@ In addition to memory requirement, there are several other limitations hard-code
 * Your NVIDIA GPU must have compute capability >= 1.3.
 * Currently, the only splitting criterion is GINI impurity, which means CudaTree can't yet do regression (splitting by variance for continuous outputs is planned)
 
-The performance gain over scikits-learn is typically about 1.5X ~ 2.5X, though the exact number depends on how powerful your GPU is and what your training data looks like. 
+The performance gain over scikits-learn is typically about 1.5X ~ 5X, though the exact number depends on how powerful your GPU is and what your training data looks like. 
 
 
 
