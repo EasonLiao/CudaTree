@@ -16,7 +16,7 @@ the latest version of [scikits-learn](http://scikit-learn.org/stable/modules/tre
 
   x_train, y_train = load_data("digits")
   forest = RandomForestClassifier()
-  forest.fit(x_train, y_train, n_trees=50, min_samples_split=20)
+  forest.fit(x_train, y_train, n_trees=50, verbose = True, bootstrap = False)
   forest.predict(x_train)
 ```
 
@@ -67,7 +67,7 @@ on your GPU, then CudaTree will fail.
 In addition to memory requirement, there are several other limitations hard-coded into CudaTree: 
 
 * The maximum number of features allowed is 65,536.
-* The maximum number of categories allowed is 2000 (CudaTree performs best when the number of categories is <=100).
+* The maximum number of categories allowed is 5000(CudaTree performs best when the number of categories is <=100).
 * Your NVIDIA GPU must have compute capability >= 1.3.
 * Currently, the only splitting criterion is GINI impurity, which means CudaTree can't yet do regression (splitting by variance for continuous outputs is planned)
 
