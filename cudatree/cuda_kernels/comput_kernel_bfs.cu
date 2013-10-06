@@ -10,25 +10,25 @@
 #define IDX_DATA_TYPE %s
 
 __device__  float calc_imp_right(COUNT_DATA_TYPE* label_previous, COUNT_DATA_TYPE* label_now, COUNT_DATA_TYPE total_size){
-  float sum = 0.0; 
+  uint32_t sum = 0.0; 
   for(LABEL_DATA_TYPE i = 0; i < MAX_NUM_LABELS; ++i){
-    float count = label_now[i] - label_previous[i];
+    uint32_t count = label_now[i] - label_previous[i];
     sum += count * count;
   }
  
-  float denom = ((float) total_size) * total_size;
-  return 1.0 - (sum / denom); 
+  uint32_t denom =  total_size * total_size;
+  return 1.0 - (float(sum) / denom); 
 }
 
 __device__  float calc_imp_left(COUNT_DATA_TYPE* label_now, COUNT_DATA_TYPE total_size){
-  float sum = 0.0;
+  uint32_t sum = 0.0;
   for(LABEL_DATA_TYPE i = 0; i < MAX_NUM_LABELS; ++i){
-    float count = label_now[i];
+    uint32_t count = label_now[i];
     sum += count * count;
   }
   
-  float denom = ((float) total_size) * total_size;
-  return 1.0 - (sum / denom); 
+  uint32_t denom =  total_size * total_size;
+  return 1.0 - ((float)sum / denom); 
 }
 
 
@@ -54,8 +54,7 @@ __global__ void compute(
   __shared__ IDX_DATA_TYPE shared_label_count[MAX_NUM_LABELS];
   __shared__ LABEL_DATA_TYPE shared_labels[THREADS_PER_BLOCK];
   __shared__ SAMPLE_DATA_TYPE shared_samples[THREADS_PER_BLOCK + 1];
-
-  
+ 
   reg_start_idx = begin_stop_idx[2 * blockIdx.x];
   reg_stop_idx = begin_stop_idx[2 * blockIdx.x + 1];
   

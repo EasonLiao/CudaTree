@@ -4,6 +4,7 @@ from util import timer, get_best_dtype, dtype_to_ctype, mk_kernel, mk_tex_kernel
 from pycuda import gpuarray
 from util import start_timer, end_timer, show_timings
 from parakeet import jit
+import math
 
 @jit
 def convert_result(tran_table, res):
@@ -52,11 +53,11 @@ class RandomForestClassifier(object):
     self.mark_table = gpuarray.empty(self.stride, np.uint8) 
     self.mark_table.bind_to_texref_ext(tex_ref)
 
-  def __get_sorted_indices(self):
+  def __get_sorted_indices(self, sorted_indices):
     """ Generate sorted indices, if bootstrap == False, then the sorted indices is as same as original sorted indices """
+    sorted_indices_gpu_original = gpuarray.to_gpu(sorted_indices)
     if not self.bootstrap:
-      sorted_indices_gpu = self.sorted_indices_gpu.copy()
-      return sorted_indices_gpu, sorted_indices_gpu.shape[1]
+      return sorted_indices_gpu_original, sorted_indices.shape[1]
     else:
       sorted_indices_gpu = gpuarray.empty((self.n_features, self.stride), dtype = self.dtype_indices)
       random_sample_idx = np.unique(np.random.randint(0, self.stride, size = self.stride)).astype(self.dtype_indices)
@@ -75,13 +76,14 @@ class RandomForestClassifier(object):
                 (self.n_features, 1),
                 (128, 1, 1),
                 self.mark_table.ptr,
-                self.sorted_indices_gpu.ptr,
+                sorted_indices_gpu_original.ptr,
                 sorted_indices_gpu.ptr,
                 self.stride)
       
       return sorted_indices_gpu, n_samples 
 
-  def fit(self, samples, target, n_trees = 10, min_samples_split = 1, max_features = None, bfs_threshold = 64, bootstrap = True):
+  def fit(self, samples, target, n_trees = 10, min_samples_split = 1, max_features = None, bfs_threshold = None, 
+      bootstrap = True, verbose = False):
     """Construce multiple trees in the forest.
 
     Parameters
@@ -103,9 +105,12 @@ class RandomForestClassifier(object):
         The minimum number of samples required to split an internal node.
         Note: this parameter is tree-specific.
     
-    bfs_threshold: integer, optional (default=64)
+    bfs_threshold: integer, optional (default= n_samples / 40)
             The n_samples threshold of changing to bfs
     
+    verbose : boolean, optional (default=False) 
+        Display the time of each tree construction takes if verbose = True.
+
     Returns
     -------
     None
@@ -146,7 +151,10 @@ class RandomForestClassifier(object):
       sort_idx = np.argsort(f)
       sorted_indices[i] = sort_idx  
   
-    self.sorted_indices_gpu = gpuarray.to_gpu(sorted_indices)
+    if bfs_threshold is None:
+      bfs_threshold = int(math.ceil(float(self.stride) / 40))
+      if bfs_threshold < 50:
+        bfs_threshold = 50
   
     if self.bootstrap:
       self.__init_bootstrap_kernel()
@@ -157,13 +165,16 @@ class RandomForestClassifier(object):
       self.RESHUFFLE_THREADS_PER_BLOCK, max_features, min_samples_split, bfs_threshold) for i in xrange(n_trees)]   
    
     for i, tree in enumerate(self.forest):
-      si, n_samples = self.__get_sorted_indices()
-      with timer("Tree %s" % (i,)):
+      si, n_samples = self.__get_sorted_indices(sorted_indices)
+      if verbose: 
+        with timer("Tree %s" % (i,)):
+          tree.fit(samples, target, si, n_samples)   
+        print ""
+      else:
         tree.fit(samples, target, si, n_samples)   
-      print ""
 
-    self.sorted_indices = None
     self.mark_table = None
+
 
   def predict(self, x):
     """Predict labels for giving samples.
@@ -178,7 +189,6 @@ class RandomForestClassifier(object):
     y: Array of shape [n_samples].
         The predicted labels.
     """
-
     x = np.require(x.copy(), requirements = "C")
     res = np.ndarray((len(self.forest), self.stride), dtype = self.dtype_labels)
 
@@ -190,4 +200,3 @@ class RandomForestClassifier(object):
       res = convert_result(self.compt_table, res)
 
     return res
-
