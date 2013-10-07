@@ -7,7 +7,6 @@ from util import total_times, mk_kernel, mk_tex_kernel, timer, dtype_to_ctype, g
 from cuda_random_base_tree import RandomBaseTree
 from pycuda import driver
 import random
-from util import show_timings
 from parakeet import jit
 
 @jit
@@ -237,7 +236,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     threshold_value = gpuarray.empty(self.queue_size, dtype = np.float32)
 
     cuda.memcpy_htod(subset_indices_array_gpu.ptr, self.subset_indices_array[0:self.max_features * self.queue_size]) 
-
+    
     self.scan_total_bfs.prepared_call(
             (self.queue_size, 1),
             (self.BFS_THREADS, 1, 1),
@@ -278,7 +277,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.min_split.ptr,
           self.mark_table.ptr,
           self.stride)
-    
+
+
     block_per_split = int(math.ceil(float(2000) / self.queue_size))
     if block_per_split > self.n_features:
       block_per_split = self.n_features
@@ -333,7 +333,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
         self.max_features, new_idx_array, idx_array, new_si_idx_array, new_nid_array, left_children, right_children,
         feature_idx_array, feature_threshold_array, nid_array, imp_min, min_split, feature_idx, si_idx_array, self.subset_indices_array, threshold,
         self.min_samples_split, self.values_idx_array, self.values_si_idx_array)
-    
+
     if self.queue_size > old_queue_size:
       for i in range(old_queue_size, self.queue_size):
         self.subset_indices_array[i * max_features : (i + 1) * max_features] = self.get_indices() 
@@ -348,10 +348,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.threshold_value_idx = np.zeros(2, self.dtype_indices)
     self.min_imp_info = np.zeros(4, dtype = np.float32)  
     
-    if self.max_features is None:
-      self.max_features = int(math.ceil(math.log(self.n_features, 2)))
-
-    assert self.max_features > 0 and self.max_features <= self.n_features, "max_features must be between 0 and n_features." 
     self.__allocate_gpuarrays()
     self.__compile_kernels() 
     self.sorted_indices_gpu = sorted_indices 
@@ -441,7 +437,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                 self.impurity_right.ptr,
                 self.min_split.ptr,
                 self.max_features)
-      
+    
+
     cuda.memcpy_dtoh(self.min_imp_info, self.impurity_left.ptr)
     min_right = self.min_imp_info[1] 
     min_left = self.min_imp_info[0] 
@@ -514,7 +511,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                 self.impurity_right.ptr,
                 self.min_split.ptr,
                 self.max_features)
-    
+
     cuda.memcpy_dtoh(self.min_imp_info, self.impurity_left.ptr)
     min_right = self.min_imp_info[1] 
     min_left = self.min_imp_info[0] 
@@ -570,7 +567,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
         int(row * self.stride + col) * int(self.dtype_indices.itemsize)) 
     self.feature_idx_array[nid] = row
     self.feature_threshold_array[nid] = (float(self.samples[row, self.threshold_value_idx[0]]) + self.samples[row, self.threshold_value_idx[1]]) / 2
-    
+   
     self.fill_kernel.prepared_call(
                       (1, 1),
                       (512, 1, 1),
@@ -592,7 +589,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                       col,
                       self.stride) 
 
-
+    
     subset_indices_left = self.get_indices()
     subset_indices_right = self.get_indices()
     
