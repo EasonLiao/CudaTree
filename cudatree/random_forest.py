@@ -155,7 +155,11 @@ class RandomForestClassifier(object):
       bfs_threshold = int(math.ceil(float(self.stride) / 40))
       if bfs_threshold < 50:
         bfs_threshold = 50
-  
+    
+    if verbose: 
+      print "bsf_threadshold : %d; bootstrap : %b; min_samples_split : %d" % (bfs_threshold, self.bootstrap, 
+          min_samples_split)
+
     if self.bootstrap:
       self.__init_bootstrap_kernel()
 
@@ -190,7 +194,7 @@ class RandomForestClassifier(object):
         The predicted labels.
     """
     x = np.require(x.copy(), requirements = "C")
-    res = np.ndarray((len(self.forest), self.stride), dtype = self.dtype_labels)
+    res = np.ndarray((len(self.forest), x.shape[0]), dtype = self.dtype_labels)
 
     for i, tree in enumerate(self.forest):
       res[i] =  tree.gpu_predict(x)
