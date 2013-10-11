@@ -55,7 +55,9 @@ class RandomForestClassifier(object):
 
   def __get_sorted_indices(self, sorted_indices):
     """ Generate sorted indices, if bootstrap == False, then the sorted indices is as same as original sorted indices """
+    
     sorted_indices_gpu_original = gpuarray.to_gpu(sorted_indices)
+
     if not self.bootstrap:
       return sorted_indices_gpu_original, sorted_indices.shape[1]
     else:
@@ -158,10 +160,14 @@ class RandomForestClassifier(object):
     
     if max_features is None:
       max_features = int(math.ceil(math.log(self.n_features, 2)))
+    
+    assert max_features > 0 and max_features <= self.n_features, "max_features must be beween 1 and n_features."
 
     if verbose: 
-      print "bsf_threadshold : %d; bootstrap : %b; min_samples_split : %d" % (bfs_threshold, self.bootstrap, 
+      print "bsf_threadshold : %d; bootstrap : %r; min_samples_split : %d" % (bfs_threshold, self.bootstrap, 
           min_samples_split)
+      print "n_samples : %d; n_features : %d; n_labels : %d; max_features : %d" % (self.stride, self.n_features, 
+              self.n_labels, max_features)
 
     if self.bootstrap:
       self.__init_bootstrap_kernel()
@@ -205,5 +211,5 @@ class RandomForestClassifier(object):
     res =  np.array([np.argmax(np.bincount(res[:,i])) for i in xrange(res.shape[1])]) 
     if hasattr(self, "compt_table"):
       res = convert_result(self.compt_table, res)
-
+    
     return res

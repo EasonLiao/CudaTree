@@ -8,7 +8,7 @@ import cudatree
 
 setup(
     name = "cudatree",
-    long_decsription='''
+    long_description='''
 CudaTree
 ========
 
