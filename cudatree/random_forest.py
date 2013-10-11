@@ -156,6 +156,9 @@ class RandomForestClassifier(object):
       if bfs_threshold < 50:
         bfs_threshold = 50
     
+    if max_features is None:
+      max_features = int(math.ceil(math.log(self.n_features, 2)))
+
     if verbose: 
       print "bsf_threadshold : %d; bootstrap : %b; min_samples_split : %d" % (bfs_threshold, self.bootstrap, 
           min_samples_split)
