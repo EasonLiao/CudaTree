@@ -47,7 +47,7 @@ CudaTree is writen for Python 2.7 and depends on:
     #cmdclass = {'build_ext' : build_ext},
     install_requires = [
         'numpy',
-        'sklearn',
+        'scikit-learn',
         'pycuda',
         "parakeet"
       ],
