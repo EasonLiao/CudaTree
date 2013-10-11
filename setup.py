@@ -14,29 +14,32 @@ CudaTree
 
 CudaTree is an implementation of Leo Breiman's Random Forests adapted to run on the GPU. A random forest is an ensemble of randomized decision trees which vote together to predict new labels. CudaTree parallelizes the construction of each individual tree in the ensemble and thus is able to train faster than the latest version of scikits-learn.
 
-### Usage ###
+Usage
+-------------
+
+::
 
   import numpy as np
   from cudatree import load_data, RandomForestClassifier
-
   x_train, y_train = load_data("digits")
   forest = RandomForestClassifier()
   forest.fit(x_train, y_train, n_trees=50, verbose = True, bootstrap = False)
   forest.predict(x_train)
 
-### Dependencies ###
+Dependencies
+--------------
 
 CudaTree is writen for Python 2.7 and depends on:
 
- * scikit-learn
- * NumPy
- * PyCUDA
- *  Parakeet
+* scikit-learn
+* NumPy
+* PyCUDA
+*  Parakeet
 ''',
     version = cudatree.__version__,
     description = "Random Forests for the GPU using PyCUDA",
-    author = [ "Yisheng Liao", "Alex Rubinsteyn"], 
-    author_email = ["yl1912@nyu.edu", "alexr@cs.nyu.edu"],
+    author =  "Yisheng Liao and Alex Rubinsteyn", 
+    author_email = ["yl1912@nyu.edu / alexr@cs.nyu.edu"],
     packages = find_packages() + ['cudatree.test'],
     package_dir = {'cudatree.test' : './test'},
     package_data = {'cudatree' : ['cuda_kernels/*.cu']},
