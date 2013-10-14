@@ -45,6 +45,7 @@ __global__ void compute(
                         COUNT_DATA_TYPE *split,
                         uint16_t *min_feature_idx,
                         int max_features,
+                        int n_features,
                         int stride){
 
   IDX_DATA_TYPE* p_sorted_indices;
@@ -72,16 +73,28 @@ __global__ void compute(
     p_sorted_indices = sorted_indices_1;
   else
     p_sorted_indices = sorted_indices_2;
- 
-  for(uint16_t f = 0; f < max_features; ++f){
+  
+  uint16_t visited_features = 0;
+
+  for(uint16_t f = 0; f < n_features; ++f){
+    
+    if(visited_features == max_features)
+      break;
+    
+    uint16_t feature_idx = subset_indices[f];
+    uint32_t offset = feature_idx * stride;
+    
+    if(samples[offset + p_sorted_indices[offset + reg_start_idx]] == 
+        samples[offset + p_sorted_indices[offset + reg_stop_idx - 1]])
+      continue;
+
+    visited_features++;
+
     //Reset shared_label_count array.
     for(uint16_t t = threadIdx.x; t < MAX_NUM_LABELS; t += blockDim.x)
       shared_label_count[t] = 0;
     
     __syncthreads();
-
-    uint16_t feature_idx = subset_indices[blockIdx.x * max_features + f];
-    uint32_t offset = feature_idx * stride;
 
     for(IDX_DATA_TYPE i = reg_start_idx; i < reg_stop_idx - 1; i += blockDim.x){
       IDX_DATA_TYPE idx = i + threadIdx.x;

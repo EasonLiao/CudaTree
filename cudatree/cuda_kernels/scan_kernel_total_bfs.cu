@@ -14,9 +14,7 @@ __global__ void count_total(
                           LABEL_DATA_TYPE *labels,
                           COUNT_DATA_TYPE *label_total,
                           uint8_t *si_idx,
-                          uint32_t *begin_stop_idx,
-                          IDX_DATA_TYPE *subset_indices,
-                          uint32_t max_features
+                          uint32_t *begin_stop_idx
                           ){
   
   IDX_DATA_TYPE *p_sorted_indices;

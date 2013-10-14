@@ -38,12 +38,12 @@ def load_data(ds_name):
       y_train = np.array(ds['fine_labels'])
   elif ds_name == "inet":
     if _img_data is None:
-      with open("/home/yl1912/imagenet-subset.pickle", "r") as f:
+      with open("/ssd/imagenet-subset.pickle", "r") as f:
         _img_data = cPickle.load(f)
     return _img_data['x'][0:10000],  _img_data['Y'][0:10000] 
   elif ds_name == "inet_test":
     if _img_data is None:
-      with open("~/imagenet-subset.pickle", "r") as f:
+      with open("/ssd/imagenet-subset.pickle", "r") as f:
         _img_data = cPickle.load(f)
     return _img_data['x'][10000:],  _img_data['Y'][10000:] 
 
