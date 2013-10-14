@@ -24,6 +24,38 @@ class RandomForestClassifier(object):
   COMPT_THREADS_PER_BLOCK = 128
   RESHUFFLE_THREADS_PER_BLOCK = 256
   
+  def __init__(self, n_estimators = 10, max_features = None, min_samples_split = 1, bootstrap = True, verbose = False):
+    """Construce multiple trees in the forest.
+
+    Parameters
+    ----------
+    n_estimator : integer, optional (default=10)
+        The number of trees in the forest.
+
+    max_features : int or None, optional (default="log2(n_features)")
+        The number of features to consider when looking for the best split:
+          - If None, then `max_features=log2(n_features)`.
+
+    min_samples_split : integer, optional (default=1)
+        The minimum number of samples required to split an internal node.
+        Note: this parameter is tree-specific.
+    
+    bootstrap : boolean, optional (default=True)
+        Whether use bootstrap samples
+    
+    verbose : boolean, optional (default=False) 
+        Display the time of each tree construction takes if verbose = True.
+    
+    Returns
+    -------
+    None
+    """    
+    self.max_features = max_features
+    self.min_samples_split = min_samples_split
+    self.bootstrap = bootstrap
+    self.verbose = verbose
+    self.n_estimators = n_estimators
+
   def __compact_labels(self, target):
     def check_is_compacted(x):
       return x.size == int(np.max(x)) + 1 and int(np.min(x)) == 0
@@ -84,8 +116,8 @@ class RandomForestClassifier(object):
       
       return sorted_indices_gpu, n_samples 
 
-  def fit(self, samples, target, n_trees = 10, min_samples_split = 1, max_features = None, bfs_threshold = None, 
-      bootstrap = True, verbose = False):
+
+  def fit(self, samples, target, bfs_threshold = None):
     """Construce multiple trees in the forest.
 
     Parameters
@@ -96,26 +128,13 @@ class RandomForestClassifier(object):
     target: numpy.array of shape = [n_samples]
             The training input labels.
     
-    n_trees : integer, optional (default=10)
-        The number of trees in the forest.
-
-    max_features : int or None, optional (default="log2(n_features)")
-        The number of features to consider when looking for the best split:
-          - If None, then `max_features=log2(n_features)`.
-
-    min_samples_split : integer, optional (default=2)
-        The minimum number of samples required to split an internal node.
-        Note: this parameter is tree-specific.
-    
     bfs_threshold: integer, optional (default= n_samples / 40)
             The n_samples threshold of changing to bfs
     
-    verbose : boolean, optional (default=False) 
-        Display the time of each tree construction takes if verbose = True.
-
     Returns
     -------
-    None
+    self : object
+      Returns self
     """
     assert isinstance(samples, np.ndarray)
     assert isinstance(target, np.ndarray)
@@ -123,8 +142,8 @@ class RandomForestClassifier(object):
 
     target = target.copy()
     self.__compact_labels(target)
+    
     self.n_labels = self.compt_table.size 
-    self.bootstrap = bootstrap
     self.dtype_indices = get_best_dtype(target.size)
 
     if self.dtype_indices == np.dtype(np.uint8):
@@ -158,16 +177,16 @@ class RandomForestClassifier(object):
       if bfs_threshold < 50:
         bfs_threshold = 50
     
-    if max_features is None:
-      max_features = int(math.ceil(math.log(self.n_features, 2)))
+    if self.max_features is None:
+      self.max_features = int(math.ceil(math.log(self.n_features, 2)))
     
-    assert max_features > 0 and max_features <= self.n_features, "max_features must be beween 1 and n_features."
+    assert self.max_features > 0 and self.max_features <= self.n_features, "max_features must be beween 1 and n_features."
 
-    if verbose: 
+    if self.verbose: 
       print "bsf_threadshold : %d; bootstrap : %r; min_samples_split : %d" % (bfs_threshold, self.bootstrap, 
-          min_samples_split)
+          self.min_samples_split)
       print "n_samples : %d; n_features : %d; n_labels : %d; max_features : %d" % (self.stride, self.n_features, 
-              self.n_labels, max_features)
+              self.n_labels, self.max_features)
 
     if self.bootstrap:
       self.__init_bootstrap_kernel()
@@ -175,18 +194,18 @@ class RandomForestClassifier(object):
     self.forest = [RandomDecisionTreeSmall(samples_gpu, labels_gpu, self.compt_table, 
       self.dtype_labels,self.dtype_samples, self.dtype_indices, self.dtype_counts,
       self.n_features, self.stride, self.n_labels, self.COMPT_THREADS_PER_BLOCK,
-      self.RESHUFFLE_THREADS_PER_BLOCK, max_features, min_samples_split, bfs_threshold) for i in xrange(n_trees)]   
+      self.RESHUFFLE_THREADS_PER_BLOCK, self.max_features, self.min_samples_split, bfs_threshold) for i in xrange(self.n_estimators)]   
    
     for i, tree in enumerate(self.forest):
       si, n_samples = self.__get_sorted_indices(sorted_indices)
-      if verbose: 
+      if self.verbose: 
         with timer("Tree %s" % (i,)):
           tree.fit(samples, target, si, n_samples)   
         print ""
       else:
         tree.fit(samples, target, si, n_samples)   
-
     self.mark_table = None
+    return self
 
 
   def predict(self, x):
@@ -210,6 +229,5 @@ class RandomForestClassifier(object):
 
     res =  np.array([np.argmax(np.bincount(res[:,i])) for i in xrange(res.shape[1])]) 
     if hasattr(self, "compt_table"):
-      res = convert_result(self.compt_table, res)
-    
+      res = convert_result(self.compt_table, res) 
     return res
