@@ -15,8 +15,8 @@ the latest version of [scikits-learn](http://scikit-learn.org/stable/modules/tre
   from cudatree import load_data, RandomForestClassifier
 
   x_train, y_train = load_data("digits")
-  forest = RandomForestClassifier()
-  forest.fit(x_train, y_train, n_trees=50, verbose = True, bootstrap = False)
+  forest = RandomForestClassifier(n_estimators=50, verbose=True, bootstrap=False)
+  forest.fit(x_train, y_train, bfs_threshold=1024)
   forest.predict(x_train)
 ```
 
