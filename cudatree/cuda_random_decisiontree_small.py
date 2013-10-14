@@ -81,8 +81,7 @@ def bfs_loop(queue_size, n_nodes, max_features, new_idx_array, idx_array, new_si
           new_nid_array[new_queue_size] = right_nid
           new_queue_size += 1
       else:
-        turn_to_leaf(right_nid, col + 1, 1, si_idx, values_idx_array, values_si_idx_array)
-   
+        turn_to_leaf(right_nid, col + 1, 1, si_idx, values_idx_array, values_si_idx_array)   
   return n_nodes , new_queue_size, new_idx_array, new_si_idx_array, new_nid_array
 
 
@@ -227,6 +226,28 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.min_split_2d = None
     self.impurity_2d = None
     self.feature_mask = None
+  
+  def __allocate_numpyarrays(self):
+    self.left_children = np.zeros(self.n_samples * 2, dtype = np.uint32)
+    self.right_children = np.zeros(self.n_samples * 2, dtype = np.uint32) 
+    self.feature_idx_array = np.zeros(2 * self.n_samples, dtype = np.uint16)
+    self.feature_threshold_array = np.zeros(2 * self.n_samples, dtype = np.float32)
+    self.idx_array = np.zeros(2 * self.n_samples, dtype = np.uint32)
+    self.si_idx_array = np.zeros(self.n_samples, dtype = np.uint8)
+    self.nid_array = np.zeros(self.n_samples, dtype = np.uint32)
+    self.values_idx_array = np.zeros(2 * self.n_samples, dtype = self.dtype_indices)
+    self.values_si_idx_array = np.zeros(2 * self.n_samples, dtype = np.uint8)
+    self.features_array = np.arange(self.n_features, dtype = self.dtype_indices)
+    self.threshold_value_idx = np.zeros(2, self.dtype_indices)
+    self.min_imp_info = np.zeros(4, dtype = np.float32)  
+
+  def __release_numpyarrays(self):
+    self.feature_array = None
+    self.nid_array = None
+    self.idx_array = None
+    self.si_idx_array = None
+    self.threshold_value_idx = None
+    self.min_imp_info = None
 
   def __bfs_construct(self):
     while self.queue_size > 0:
@@ -347,11 +368,10 @@ class RandomDecisionTreeSmall(RandomBaseTree):
   def fit(self, samples, target, sorted_indices, n_samples): 
     self.samples_itemsize = self.dtype_samples.itemsize
     self.labels_itemsize = self.dtype_labels.itemsize
-    self.threshold_value_idx = np.zeros(2, self.dtype_indices)
-    self.min_imp_info = np.zeros(4, dtype = np.float32)  
     
     self.__allocate_gpuarrays()
     self.__compile_kernels() 
+    
     self.sorted_indices_gpu = sorted_indices 
     self.sorted_indices_gpu_ = self.sorted_indices_gpu.copy()
     self.n_samples = n_samples    
@@ -364,25 +384,17 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     
     self.samples = samples
     self.target = target
-    self.left_children = np.zeros(self.n_samples * 2, dtype = np.uint32)
-    self.right_children = np.zeros(self.n_samples * 2, dtype = np.uint32)
-    
-    self.feature_idx_array = np.zeros(2 * self.n_samples, dtype = np.uint16)
-    self.feature_threshold_array = np.zeros(2 * self.n_samples, dtype = np.float32)
-    self.idx_array = np.zeros(2 * self.n_samples, dtype = np.uint32)
-    self.si_idx_array = np.zeros(self.n_samples, dtype = np.uint8)
-    self.subset_indices_array = np.zeros(self.n_samples * self.max_features, dtype = self.dtype_indices)
     self.queue_size = 0
-    self.nid_array = np.zeros(self.n_samples, dtype = np.uint32)
-    self.values_idx_array = np.zeros(2 * self.n_samples, dtype = self.dtype_indices)
-    self.values_si_idx_array = np.zeros(2 * self.n_samples, dtype = np.uint8)
-    self.features_array = np.arange(self.n_features, dtype = self.dtype_indices)
 
+    self.__allocate_numpyarrays()
     self.n_nodes = 0 
+
     self.root = self.__dfs_construct(1, 1.0, 0, self.n_samples, self.sorted_indices_gpu, self.sorted_indices_gpu_)  
     self.__bfs_construct() 
     self.__gpu_decorate_nodes(samples, target)
     self.__release_gpuarrays() 
+    self.__release_numpyarrays()
+
 
   def __gpu_decorate_nodes(self, samples, labels):
     si_0 = np.empty(self.n_samples, dtype = self.dtype_indices)
@@ -441,14 +453,12 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                 self.min_split.ptr,
                 self.max_features)
     
-
     cuda.memcpy_dtoh(self.min_imp_info, self.impurity_left.ptr)
     min_right = self.min_imp_info[1] 
     min_left = self.min_imp_info[0] 
     col = int(self.min_imp_info[2]) 
     row = int(self.min_imp_info[3])
     row = subset_indices[row] 
-
     return min_left, min_right, row, col
 
 
@@ -465,8 +475,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     min_right = None
     row = None
     col = None
-    
-    
+        
     self.scan_total_2d.prepared_call(
           (self.max_features, n_block),
           (self.COMPT_THREADS_PER_BLOCK, 1, 1),
@@ -564,12 +573,20 @@ class RandomDecisionTreeSmall(RandomBaseTree):
               self.stride)
     
     selected_features = np.where(self.feature_mask.get())[0] 
-    feature_num = selected_features.size 
-    indices = np.array(random.sample(xrange(feature_num), self.max_features))
-    subset_indices = selected_features[indices].astype(self.dtype_indices)
+    feature_num = selected_features.size
+   
+    if feature_num == self.n_features:
+      subset_indices = self.get_indices()
+    else:
+      subset_indices = np.zeros(self.max_features, self.dtype_indices)
+      if feature_num < self.max_features:
+        max_features = feature_num
+      else:
+        max_features = self.max_features
 
-    """ todo : fix the potential bug """
-     
+      indices = np.array(random.sample(xrange(feature_num), max_features))
+      subset_indices[0 : max_features] = selected_features[indices].astype(self.dtype_indices)
+
     cuda.memcpy_htod(self.subset_indices.ptr, subset_indices)
     
     if n_samples > 2000:
