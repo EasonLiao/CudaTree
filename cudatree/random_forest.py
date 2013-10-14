@@ -207,7 +207,6 @@ class RandomForestClassifier(object):
     self.mark_table = None
     return self
 
-
   def predict(self, x):
     """Predict labels for giving samples.
 
@@ -231,3 +230,6 @@ class RandomForestClassifier(object):
     if hasattr(self, "compt_table"):
       res = convert_result(self.compt_table, res) 
     return res
+
+  def score(self, X, Y):
+    return np.mean(self.predict(X) == Y)
