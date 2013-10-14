@@ -123,70 +123,112 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     n_labels = self.n_labels
     n_threads = self.COMPT_THREADS_PER_BLOCK
     n_shf_threads = self.RESHUFFLE_THREADS_PER_BLOCK
-    
-    self.fill_kernel = mk_kernel((ctype_indices,), "fill_table", "fill_table_si.cu") 
-    self.scan_total_kernel = mk_kernel((n_threads, n_labels, ctype_labels, ctype_counts, ctype_indices), 
-        "count_total", "scan_kernel_total_si.cu") 
-    
-    self.comput_total_kernel = mk_kernel((n_threads, n_labels, ctype_samples, ctype_labels, 
-      ctype_counts, ctype_indices), "compute", "comput_kernel_total_rand.cu")
-     
-    self.scan_reshuffle_tex, tex_ref = mk_tex_kernel((ctype_indices, n_shf_threads), 
-        "scan_reshuffle", "tex_mark", "pos_scan_reshuffle_si_c_tex.cu")   
-    self.mark_table.bind_to_texref_ext(tex_ref) 
-    
-    self.find_min_kernel = mk_kernel((ctype_counts, 32), 
-        "find_min_imp", "find_min_gini.cu")
+
+    self.fill_kernel = mk_kernel(
+      params = (ctype_indices,), 
+      func_name = "fill_table", 
+      kernel_file = "fill_table_si.cu", 
+      prepare_args = "PiiPi")
+
       
-    self.predict_kernel = mk_kernel((ctype_indices, ctype_samples, ctype_labels), 
-        "predict", "predict.cu")
-  
-    self.scan_total_bfs = mk_kernel((self.BFS_THREADS, n_labels, ctype_labels, ctype_counts, ctype_indices), 
-        "count_total", "scan_kernel_total_bfs.cu")
-  
-    self.comput_bfs = mk_kernel((self.BFS_THREADS, n_labels, ctype_samples, ctype_labels, ctype_counts, 
-      ctype_indices), "compute", "comput_kernel_bfs.cu")
+    self.scan_total_kernel = mk_kernel(
+        params = (n_threads, n_labels, ctype_labels, ctype_counts, ctype_indices), 
+        func_name = "count_total", 
+        kernel_file = "scan_kernel_total_si.cu", 
+        prepare_args = "PPPi") 
     
-    self.fill_bfs = mk_kernel((ctype_indices,), "fill_table", "fill_table_bfs.cu")
-    
-    self.reshuffle_bfs, tex_ref = mk_tex_kernel((ctype_indices, self.BFS_THREADS), 
-        "scan_reshuffle", "tex_mark", "pos_scan_reshuffle_bfs.cu")
+    self.comput_total_kernel = mk_kernel(
+      params = (n_threads, n_labels, ctype_samples, 
+                ctype_labels, ctype_counts, ctype_indices), 
+      func_name = "compute", 
+      kernel_file = "comput_kernel_total_rand.cu", 
+      prepare_args = "PPPPPPPPii")
+         
+    self.scan_reshuffle_tex, tex_ref = mk_tex_kernel(
+      params = (ctype_indices, n_shf_threads), 
+      func_name = "scan_reshuffle", 
+      tex_name = "tex_mark", 
+      kernel_file = "pos_scan_reshuffle_si_c_tex.cu", 
+      prepare_args = "PPPiii")   
     self.mark_table.bind_to_texref_ext(tex_ref) 
     
-    self.comput_total_2d = mk_kernel((n_threads, n_labels, ctype_samples, ctype_labels, ctype_counts, ctype_indices, 
-      self.MAX_BLOCK_PER_FEATURE), "compute", "comput_kernel_2d.cu")
+    
+    self.find_min_kernel = mk_kernel(
+      params = (ctype_counts, 32), 
+      func_name = "find_min_imp", 
+      kernel_file = "find_min_gini.cu", 
+      prepare_args = "PPPi")
+    
+    self.predict_kernel = mk_kernel(
+        params = (ctype_indices, ctype_samples, ctype_labels), 
+        func_name = "predict", 
+        kernel_file = "predict.cu", 
+        prepare_args = "PPPPPPPii")
+  
+    self.scan_total_bfs = mk_kernel(
+      params = (self.BFS_THREADS, n_labels, ctype_labels, ctype_counts, ctype_indices), 
+      func_name = "count_total", 
+      kernel_file = "scan_kernel_total_bfs.cu", 
+      prepare_args = "PPPPPP")
+  
+    self.comput_bfs = mk_kernel(
+      params = (self.BFS_THREADS, n_labels, ctype_samples, 
+                ctype_labels, ctype_counts, ctype_indices), 
+      func_name = "compute", 
+      kernel_file = "comput_kernel_bfs.cu", 
+      prepare_args = "PPPPPPPPPPPiii")
+    
+    self.fill_bfs = mk_kernel(
+      params = (ctype_indices,), 
+      func_name = "fill_table", 
+      kernel_file = "fill_table_bfs.cu", 
+      prepare_args = "PPPPPPPi")
+    
+    self.reshuffle_bfs, tex_ref = mk_tex_kernel(
+      params = (ctype_indices, self.BFS_THREADS), 
+      func_name = "scan_reshuffle", 
+      tex_name= "tex_mark", 
+      kernel_file = "pos_scan_reshuffle_bfs.cu", 
+      prepare_args = "PPPPPPii")
+    self.mark_table.bind_to_texref_ext(tex_ref) 
+    
+    self.comput_total_2d = mk_kernel(
+      params = (n_threads, n_labels, ctype_samples, ctype_labels, ctype_counts, 
+                ctype_indices, self.MAX_BLOCK_PER_FEATURE), 
+      func_name = "compute", 
+      kernel_file = "comput_kernel_2d.cu", 
+      prepare_args = "PPPPPPPiii")
 
-    self.reduce_2d = mk_kernel((ctype_indices, self.MAX_BLOCK_PER_FEATURE), "reduce", "reduce_2d.cu")
+    self.reduce_2d = mk_kernel(
+      params = (ctype_indices, self.MAX_BLOCK_PER_FEATURE), 
+      func_name = "reduce", 
+      kernel_file = "reduce_2d.cu", 
+      prepare_args = "PPPPPi")
     
-    self.scan_total_2d = mk_kernel((n_threads, n_labels, ctype_labels, ctype_counts, ctype_indices, self.MAX_BLOCK_PER_FEATURE),
-        "count_total", "scan_kernel_2d.cu")
+    self.scan_total_2d = mk_kernel(
+      params = (n_threads, n_labels, ctype_labels, ctype_counts, 
+                ctype_indices, self.MAX_BLOCK_PER_FEATURE),
+      func_name = "count_total", 
+      kernel_file = "scan_kernel_2d.cu", 
+      prepare_args = "PPPPiii")
     
-    self.scan_reduce = mk_kernel((n_labels, ctype_indices, self.MAX_BLOCK_PER_FEATURE), "scan_reduce", "scan_reduce.cu")
+    self.scan_reduce = mk_kernel(
+      params = (n_labels, ctype_indices, self.MAX_BLOCK_PER_FEATURE), 
+      func_name = "scan_reduce", 
+      kernel_file = "scan_reduce.cu", 
+      prepare_args = "Pi")
     
-    self.get_thresholds = mk_kernel((ctype_indices, ctype_samples), "get_thresholds", "get_thresholds.cu")
+    self.get_thresholds = mk_kernel(
+      params = (ctype_indices, ctype_samples), 
+      func_name = "get_thresholds", 
+      kernel_file = "get_thresholds.cu", 
+      prepare_args = "PPPPPPPi")
     
-    self.feature_selector = mk_kernel((ctype_indices, ctype_samples), "feature_selector", "feature_selector.cu")
-
-    if hasattr(self.fill_kernel, "is_prepared"):
-      return
-    
-    self.fill_kernel.is_prepared = True
-    self.fill_kernel.prepare("PiiPi")
-    self.scan_reshuffle_tex.prepare("PPPiii") 
-    self.scan_total_kernel.prepare("PPPi")
-    self.find_min_kernel.prepare("PPPi")
-    self.predict_kernel.prepare("PPPPPPPii")
-    self.scan_total_bfs.prepare("PPPPPP")
-    self.comput_bfs.prepare("PPPPPPPPPPPiii")
-    self.fill_bfs.prepare("PPPPPPPi")
-    self.reshuffle_bfs.prepare("PPPPPPii")
-    self.comput_total_kernel.prepare("PPPPPPPPii")
-    self.comput_total_2d.prepare("PPPPPPPiii")
-    self.reduce_2d.prepare("PPPPPi")
-    self.scan_total_2d.prepare("PPPPiii")
-    self.scan_reduce.prepare("Pi")
-    self.get_thresholds.prepare("PPPPPPPi")
-    self.feature_selector.prepare("PPPii")
+    self.feature_selector = mk_kernel(
+      params = (ctype_indices, ctype_samples), 
+      func_name = "feature_selector", 
+      kernel_file = "feature_selector.cu", 
+      prepare_args = "PPPii")
 
   def __allocate_gpuarrays(self):
     if self.max_features < 4:
@@ -322,8 +364,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.n_features,
           self.stride)
     
-    max_features = self.max_features
-    old_queue_size = self.queue_size
+
     
     self.__shuffle_features()
 
@@ -339,8 +380,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.min_split.ptr,
           self.stride)
     
-    queue_size = 0
-    n_nodes = self.n_nodes
+
     new_idx_array = np.empty(self.queue_size * 2 * 2, dtype = np.uint32)
     idx_array = self.idx_array
     new_si_idx_array = np.empty(self.queue_size * 2, dtype = np.uint8)
@@ -471,10 +511,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
   def __gini_large(self, n_samples, indices_offset, subset_indices, si_gpu_in):
     n_block, n_range = self.__get_block_size(n_samples)
-    min_left = None
-    min_right = None
-    row = None
-    col = None
         
     self.scan_total_2d.prepared_call(
           (self.max_features, n_block),

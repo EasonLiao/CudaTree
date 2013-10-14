@@ -38,9 +38,9 @@ def dtype_to_ctype(dtype):
   assert dtype.kind in ('u', 'i')
   return "%s_t" % dtype 
 
-def mk_kernel(params, func_name, kernel_file):
+def mk_kernel(params, func_name, kernel_file, prepare_args = None):
   kernel_file = path.dirname(__file__) + "/cuda_kernels/" + kernel_file
-  key = (params, kernel_file)
+  key = (params, kernel_file, prepare_args)
   if key in _kernel_cache:
     return _kernel_cache[key]
 
@@ -49,12 +49,13 @@ def mk_kernel(params, func_name, kernel_file):
     src = code % params
     mod = SourceModule(src)
     fn = mod.get_function(func_name)
+    if prepare_args is not None: fn.prepare(prepare_args)
     _kernel_cache[key] = fn
     return fn
 
-def mk_tex_kernel(params, func_name, tex_name, kernel_file):
+def mk_tex_kernel(params, func_name, tex_name, kernel_file, prepare_args = None):
   kernel_file = path.dirname(__file__) + "/cuda_kernels/" + kernel_file
-  key = (params, kernel_file)
+  key = (params, kernel_file, prepare_args)
   if key in _kernel_cache:
     return _kernel_cache[key]
 
@@ -64,6 +65,7 @@ def mk_tex_kernel(params, func_name, tex_name, kernel_file):
     mod = SourceModule(src)
     fn = mod.get_function(func_name)
     tex = mod.get_texref(tex_name)
+    if prepare_args is not None: fn.prepare(prepare_args)
     _kernel_cache[key] = (fn, tex)
     return fn, tex
 
