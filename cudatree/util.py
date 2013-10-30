@@ -43,7 +43,7 @@ def mk_kernel(params, func_name, kernel_file, prepare_args = None):
   key = (params, kernel_file, prepare_args)
   if key in _kernel_cache:
     return _kernel_cache[key]
-
+  
   with open(kernel_file) as code_file:
     code = code_file.read()
     src = code % params

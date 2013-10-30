@@ -54,6 +54,10 @@ def load_data(ds_name):
       with open("/ssd/imagenet-subset.pickle", "r") as f:
         _img_data = cPickle.load(f)
     return _img_data['x'][10000:],  _img_data['Y'][10000:] 
+  elif ds_name == "kdd":
+    data = np.load(data_dir + "data.npy")
+    x_train = data[:, :-1]
+    y_train = data[:, -1]
   else:
     assert False, "Unrecognized data set name %s" % ds_name
   return x_train, y_train

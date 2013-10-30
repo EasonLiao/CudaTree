@@ -8,6 +8,9 @@ from cuda_random_base_tree import RandomBaseTree
 from pycuda import driver
 import random
 from parakeet import jit
+from util import start_timer, end_timer, show_timings
+
+sync = driver.Context.synchronize
 
 @jit
 def decorate(target, si_0, si_1, values_idx_array, values_si_idx_array, values_array, n_nodes):
@@ -282,6 +285,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.features_array = np.arange(self.n_features, dtype = self.dtype_indices)
     self.threshold_value_idx = np.zeros(2, self.dtype_indices)
     self.min_imp_info = np.zeros(4, dtype = np.float32)  
+    
 
   def __release_numpyarrays(self):
     self.feature_array = None
@@ -291,11 +295,13 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.threshold_value_idx = None
     self.min_imp_info = None
 
+
   def __bfs_construct(self):
     while self.queue_size > 0:
       self.__bfs()
   
   def __bfs(self):
+
     idx_array_gpu = gpuarray.to_gpu(self.idx_array[0 : self.queue_size * 2])
     si_idx_array_gpu = gpuarray.to_gpu(self.si_idx_array[0 : self.queue_size])
     subset_indices_array_gpu = gpuarray.empty(self.n_features, dtype = self.dtype_indices)
@@ -308,6 +314,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
     cuda.memcpy_htod(subset_indices_array_gpu.ptr, self.features_array) 
     
+    start_timer("gini bfs scan")
     self.scan_total_bfs.prepared_call(
             (self.queue_size, 1),
             (self.BFS_THREADS, 1, 1),
@@ -318,6 +325,10 @@ class RandomDecisionTreeSmall(RandomBaseTree):
             si_idx_array_gpu.ptr,
             idx_array_gpu.ptr)
     
+    sync()
+    end_timer("gini bfs scan")
+
+    start_timer("gini bfs comput")
     self.comput_bfs.prepared_call(
           (self.queue_size, 1),
           (self.BFS_THREADS, 1, 1),
@@ -335,7 +346,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.max_features,
           self.n_features,
           self.stride)
-        
+    
     self.fill_bfs.prepared_call(
           (self.queue_size, 1),
           (self.BFS_THREADS, 1, 1),
@@ -348,10 +359,15 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.mark_table.ptr,
           self.stride)
 
+    sync()
+    end_timer("gini bfs comput")
+
     block_per_split = int(math.ceil(float(2000) / self.queue_size))
     if block_per_split > self.n_features:
       block_per_split = self.n_features
     
+    
+    start_timer("bfs reshuffle")
     self.reshuffle_bfs.prepared_call(
           (self.queue_size, block_per_split),
           (self.BFS_THREADS, 1, 1),
@@ -362,10 +378,10 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           idx_array_gpu.ptr,
           self.min_split.ptr,
           self.n_features,
-          self.stride)
+          self.stride) 
     
-
-    
+    sync()
+    end_timer("bfs reshuffle")
     self.__shuffle_features()
 
     self.get_thresholds.prepared_call(
@@ -380,7 +396,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.min_split.ptr,
           self.stride)
     
-
     new_idx_array = np.empty(self.queue_size * 2 * 2, dtype = np.uint32)
     idx_array = self.idx_array
     new_si_idx_array = np.empty(self.queue_size * 2, dtype = np.uint8)
@@ -400,6 +415,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
         self.max_features, new_idx_array, idx_array, new_si_idx_array, new_nid_array, left_children, right_children,
         feature_idx_array, feature_threshold_array, nid_array, imp_min, min_split, feature_idx, si_idx_array, threshold,
         self.min_samples_split, self.values_idx_array, self.values_si_idx_array)
+    
 
     self.n_nodes = int(self.n_nodes)
     self.queue_size = int(self.queue_size)
@@ -434,12 +450,11 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.__gpu_decorate_nodes(samples, target)
     self.__release_gpuarrays() 
     self.__release_numpyarrays()
-
+    show_timings()
 
   def __gpu_decorate_nodes(self, samples, labels):
     si_0 = np.empty(self.n_samples, dtype = self.dtype_indices)
     si_1 = np.empty(self.n_samples, dtype = self.dtype_indices)
-    
     self.values_array = np.empty(self.n_nodes, dtype = self.dtype_labels)
     cuda.memcpy_dtoh(si_0, self.sorted_indices_gpu.ptr)
     cuda.memcpy_dtoh(si_1, self.sorted_indices_gpu_.ptr)
@@ -448,11 +463,16 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
     self.values_idx_array = None
     self.values_si_idx_array = None
+    """
+    self.left_children = None
+    self.right_children = None
+    self.feature_threshold_array = None
+    self.feature_idx_array = None
+    """
     self.left_children = self.left_children[0 : self.n_nodes]
     self.right_children = self.right_children[0 : self.n_nodes]
     self.feature_threshold_array = self.feature_threshold_array[0 : self.n_nodes]
     self.feature_idx_array = self.feature_idx_array[0 : self.n_nodes]
-
 
   def turn_to_leaf(self, nid, start_idx, n_samples, idx):
     """ Pick the indices to record on the leaf node. We'll choose the most common label """ 
@@ -462,7 +482,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
   def __gini_small(self, n_samples, indices_offset, subset_indices, si_gpu_in):
     block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
     grid = (self.max_features, 1) 
-
+    
+    start_timer("gini small")
     self.scan_total_kernel.prepared_call(
                 (1, 1),
                 block,
@@ -493,6 +514,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                 self.min_split.ptr,
                 self.max_features)
     
+    sync()
+    end_timer("gini small")
+
     cuda.memcpy_dtoh(self.min_imp_info, self.impurity_left.ptr)
     min_right = self.min_imp_info[1] 
     min_left = self.min_imp_info[0] 
@@ -511,7 +535,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
   def __gini_large(self, n_samples, indices_offset, subset_indices, si_gpu_in):
     n_block, n_range = self.__get_block_size(n_samples)
-        
+    
+    start_timer("gini dfs scan")
     self.scan_total_2d.prepared_call(
           (self.max_features, n_block),
           (self.COMPT_THREADS_PER_BLOCK, 1, 1),
@@ -529,6 +554,10 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.label_total_2d.ptr,
           n_block) 
     
+    sync()
+    end_timer("gini dfs scan")
+    
+    start_timer("gini dfs comput")
     self.comput_total_2d.prepared_call(
          (self.max_features, n_block),
          (self.COMPT_THREADS_PER_BLOCK, 1, 1),
@@ -560,13 +589,16 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                 self.impurity_right.ptr,
                 self.min_split.ptr,
                 self.max_features)
-
+    
+    sync()
+    end_timer("gini dfs comput")
+    
     cuda.memcpy_dtoh(self.min_imp_info, self.impurity_left.ptr)
     min_right = self.min_imp_info[1] 
     min_left = self.min_imp_info[0] 
     col = int(self.min_imp_info[2]) 
     row = int(self.min_imp_info[3])
-    row = subset_indices[row] 
+    row = subset_indices[row]  
     return min_left, min_right, row, col
 
 
@@ -577,9 +609,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       else:
         return False 
     
+
     n_samples = stop_idx - start_idx 
     indices_offset =  start_idx * self.dtype_indices.itemsize    
-    
     nid = self.n_nodes
     self.n_nodes += 1
 
@@ -598,30 +630,31 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       self.nid_array[self.queue_size] = nid
       self.queue_size += 1
       return
-     
-    self.feature_selector.prepared_call(
-              (self.n_features, 1),
-              (1, 1, 1),
-              si_gpu_in.ptr + indices_offset,
-              self.samples_gpu.ptr,
-              self.feature_mask.ptr,
-              n_samples,
-              self.stride)
     
-    selected_features = np.where(self.feature_mask.get())[0] 
-    feature_num = selected_features.size
+    subset_indices = self.get_indices()
+    #self.feature_selector.prepared_call(
+    #          (self.n_features, 1),
+    #          (1, 1, 1),
+    #          si_gpu_in.ptr + indices_offset,
+    #          self.samples_gpu.ptr,
+    #          self.feature_mask.ptr,
+    #          n_samples,
+    #          self.stride)
+    #
+    #selected_features = np.where(self.feature_mask.get())[0] 
+    #feature_num = selected_features.size
    
-    if feature_num == self.n_features:
-      subset_indices = self.get_indices()
-    else:
-      subset_indices = np.zeros(self.max_features, self.dtype_indices)
-      if feature_num < self.max_features:
-        max_features = feature_num
-      else:
-        max_features = self.max_features
+    #if feature_num == self.n_features:
+    #  subset_indices = self.get_indices()
+    #else:
+    #  subset_indices = np.zeros(self.max_features, self.dtype_indices)
+    #  if feature_num < self.max_features:
+    #    max_features = feature_num
+    #  else:
+    #    max_features = self.max_features
 
-      indices = np.array(random.sample(xrange(feature_num), max_features))
-      subset_indices[0 : max_features] = selected_features[indices].astype(self.dtype_indices)
+    #  indices = np.array(random.sample(xrange(feature_num), max_features))
+    #  subset_indices[0 : max_features] = selected_features[indices].astype(self.dtype_indices)
 
     cuda.memcpy_htod(self.subset_indices.ptr, subset_indices)
     
@@ -638,7 +671,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
         int(row * self.stride + col) * int(self.dtype_indices.itemsize)) 
     self.feature_idx_array[nid] = row
     self.feature_threshold_array[nid] = (float(self.samples[row, self.threshold_value_idx[0]]) + self.samples[row, self.threshold_value_idx[1]]) / 2
-   
+    
+
+    start_timer("dfs reshuffle")
     self.fill_kernel.prepared_call(
                       (1, 1),
                       (512, 1, 1),
@@ -647,7 +682,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                       col, 
                       self.mark_table.ptr, 
                       self.stride)
-       
+    
     block = (self.RESHUFFLE_THREADS_PER_BLOCK, 1, 1)
     
     self.scan_reshuffle_tex.prepared_call(
@@ -659,7 +694,10 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                       n_samples,
                       col,
                       self.stride) 
- 
+
+    sync()
+    end_timer("dfs reshuffle")
+
     self.left_children[nid] = self.n_nodes
     self.__dfs_construct(depth + 1, min_left, 
         start_idx, start_idx + col + 1, si_gpu_out, si_gpu_in)

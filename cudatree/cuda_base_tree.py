@@ -58,8 +58,8 @@ class BaseTree(object):
     threshold_gpu = gpuarray.to_gpu(self.feature_threshold_array)
     value_gpu = gpuarray.to_gpu(self.values_array)
     feature_gpu = gpuarray.to_gpu(self.feature_idx_array)
-    predict_res_gpu = gpuarray.zeros(n_predict, dtype=self.dtype_labels)
     
+    predict_res_gpu = gpuarray.zeros(n_predict, dtype=self.dtype_labels)
     grid = get_grid_size(n_predict)
     
     self.predict_kernel.prepared_call(

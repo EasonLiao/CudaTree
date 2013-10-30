@@ -16,12 +16,13 @@ def test_digits_memorize():
     print "%s (Wrong) / %s (Total). The error rate is %f." % (diff, total, diff/float(total))
   assert diff == 0, "Didn't memorize, got %d wrong" % diff 
 
-
-
+"""
 from helpers import compare_accuracy 
 def test_digits_vs_sklearn():
   compare_accuracy(x,y)
+"""
 
 if __name__ == "__main__":
+  print "fyck"
   test_digits_memorize()
-  test_digits_vs_sklearn()
+  #test_digits_vs_sklearn()
