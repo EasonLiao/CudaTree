@@ -1,7 +1,7 @@
-#include<stdio.h>
-#include<math.h>
-#include<stdint.h>
-
+#include <stdio.h>
+#include <math.h>
+#include <stdint.h>
+#include <assert.h>
 #define THREADS_PER_BLOCK %d
 #define MAX_NUM_LABELS %d
 #define SAMPLE_DATA_TYPE %s
@@ -9,6 +9,7 @@
 #define COUNT_DATA_TYPE %s
 #define IDX_DATA_TYPE %s
 #define MAX_BLOCK_PER_FEATURE %d
+#define DEBUG %d
 
 __device__ inline float calc_imp_right(float* label_previous, float* label_now, IDX_DATA_TYPE total_size){
   float sum = 0.0;
@@ -60,7 +61,7 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
       - impurity_2d : the minimum impurity score for each range of each feature.
       - split : the split index which produces the minimum gini score.
   */
-  
+
   uint32_t offset = subset_indices[blockIdx.x] * stride;
   float reg_imp_right = 2.0;
   float reg_imp_left = 2.0;
@@ -92,6 +93,10 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
       IDX_DATA_TYPE end_pos = (i + blockDim.x < stop_pos)? blockDim.x : stop_pos - i;
       
         for(IDX_DATA_TYPE t = 0; t < end_pos; ++t){
+          #if DEBUG == 1
+          assert(shared_labels[t] >= 0 && shared_labels[t] < MAX_NUM_LABELS);
+          #endif
+
           shared_count[shared_labels[t]]++;
                     
           if(t != end_pos - 1){
@@ -105,10 +110,19 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
           float imp_right = calc_imp_right(shared_count, shared_count_total, n_samples - i - 1 - t) *
             (n_samples - i - 1 - t) / n_samples;
           
+          #if DEBUG == 1
+          assert(imp_left >= 0.0 && imp_left <= 1.0);
+          assert(imp_right >= 0.0 && imp_right <= 1.0);
+          #endif
+
           if(imp_left + imp_right < reg_imp_right + reg_imp_left){
             reg_imp_left = imp_left;
             reg_imp_right = imp_right;
             reg_min_split = i + t;
+
+            #if DEBUG == 1
+            assert(reg_min_split < n_samples);
+            #endif
           }  
         }
     }    
@@ -119,5 +133,9 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
     impurity_2d[blockIdx.x * MAX_BLOCK_PER_FEATURE * 2 + 2 * blockIdx.y] = reg_imp_left;
     impurity_2d[blockIdx.x * MAX_BLOCK_PER_FEATURE * 2 + 2 * blockIdx.y + 1] = reg_imp_right;
     split[blockIdx.x * MAX_BLOCK_PER_FEATURE + blockIdx.y] = reg_min_split;
+    #if DEBUG == 1
+    assert(reg_imp_left == 2.0 || (reg_imp_left >= 0.0 && reg_imp_left <= 1.0));
+    assert(reg_imp_right == 2.0 || (reg_imp_right >= 0.0 && reg_imp_right <= 1.0));
+    #endif
   }
 }

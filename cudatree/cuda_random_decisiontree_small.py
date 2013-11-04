@@ -96,7 +96,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
   def __init__(self, samples_gpu, labels_gpu, compt_table, dtype_labels, dtype_samples, 
       dtype_indices, dtype_counts, n_features, stride, n_labels, n_threads, n_shf_threads, max_features = None,
-      min_samples_split = None, bfs_threshold = 64):
+      min_samples_split = None, bfs_threshold = 64, debug = False):
     self.root = None
     self.n_labels = n_labels
     self.stride = stride
@@ -113,12 +113,20 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.max_features = max_features
     self.min_samples_split =  min_samples_split
     self.bfs_threshold = bfs_threshold
-  
+    if debug == False:
+      self.debug = 0
+    else:
+      self.debug = 1
+     
   def get_indices(self):
+    if self.debug:
+      return np.arange(self.max_features, dtype = self.dtype_indices)
+
     return np.array(random.sample(xrange(self.n_features), self.max_features), dtype=self.dtype_indices)
   
   def __shuffle_features(self):
-    np.random.shuffle(self.features_array)
+    if self.debug == False:
+      np.random.shuffle(self.features_array)
 
   def __compile_kernels(self):
     ctype_indices = dtype_to_ctype(self.dtype_indices)
@@ -178,7 +186,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
   
     self.comput_bfs = mk_kernel(
       params = (self.BFS_THREADS, n_labels, ctype_samples, 
-                ctype_labels, ctype_counts, ctype_indices), 
+                ctype_labels, ctype_counts, ctype_indices, self.debug), 
       func_name = "compute", 
       kernel_file = "comput_kernel_bfs.cu", 
       prepare_args = "PPPPPPPPPPPiii")
@@ -199,20 +207,20 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     
     self.comput_total_2d = mk_kernel(
       params = (n_threads, n_labels, ctype_samples, ctype_labels, ctype_counts, 
-                ctype_indices, self.MAX_BLOCK_PER_FEATURE), 
+                ctype_indices, self.MAX_BLOCK_PER_FEATURE, self.debug), 
       func_name = "compute", 
       kernel_file = "comput_kernel_2d.cu", 
       prepare_args = "PPPPPPPiii")
 
     self.reduce_2d = mk_kernel(
-      params = (ctype_indices, self.MAX_BLOCK_PER_FEATURE), 
+      params = (ctype_indices, self.MAX_BLOCK_PER_FEATURE, self.debug), 
       func_name = "reduce", 
       kernel_file = "reduce_2d.cu", 
       prepare_args = "PPPPPi")
     
     self.scan_total_2d = mk_kernel(
       params = (n_threads, n_labels, ctype_labels, ctype_counts, 
-                ctype_indices, self.MAX_BLOCK_PER_FEATURE),
+                ctype_indices, self.MAX_BLOCK_PER_FEATURE, self.debug),
       func_name = "count_total", 
       kernel_file = "scan_kernel_2d.cu", 
       prepare_args = "PPPPiii")
@@ -453,6 +461,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.__release_gpuarrays() 
     self.__release_numpyarrays()
     show_timings()
+    print "n_nodes : ", self.n_nodes
 
   def __gpu_decorate_nodes(self, samples, labels):
     si_0 = np.empty(self.n_samples, dtype = self.dtype_indices)
@@ -633,30 +642,30 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       self.queue_size += 1
       return
     
-    #subset_indices = self.get_indices()
-    self.feature_selector.prepared_call(
-              (self.n_features, 1),
-              (1, 1, 1),
-              si_gpu_in.ptr + indices_offset,
-              self.samples_gpu.ptr,
-              self.feature_mask.ptr,
-              n_samples,
-              self.stride)
-    
-    selected_features = np.where(self.feature_mask.get())[0] 
-    feature_num = selected_features.size
+    subset_indices = self.get_indices()
+    #self.feature_selector.prepared_call(
+    #          (self.n_features, 1),
+    #          (1, 1, 1),
+    #          si_gpu_in.ptr + indices_offset,
+    #          self.samples_gpu.ptr,
+    #          self.feature_mask.ptr,
+    #          n_samples,
+    #          self.stride)
+    #
+    #selected_features = np.where(self.feature_mask.get())[0] 
+    #feature_num = selected_features.size
    
-    if feature_num == self.n_features:
-      subset_indices = self.get_indices()
-    else:
-      subset_indices = np.zeros(self.max_features, self.dtype_indices)
-      if feature_num < self.max_features:
-        max_features = feature_num
-      else:
-        max_features = self.max_features
+    #if feature_num == self.n_features:
+    #  subset_indices = self.get_indices()
+    #else:
+    #  subset_indices = np.zeros(self.max_features, self.dtype_indices)
+    #  if feature_num < self.max_features:
+    #    max_features = feature_num
+    #  else:
+    #    max_features = self.max_features
 
-      indices = np.array(random.sample(xrange(feature_num), max_features))
-      subset_indices[0 : max_features] = selected_features[indices].astype(self.dtype_indices)
+    #  indices = np.array(random.sample(xrange(feature_num), max_features))
+    #  subset_indices[0 : max_features] = selected_features[indices].astype(self.dtype_indices)
 
     cuda.memcpy_htod(self.subset_indices.ptr, subset_indices)
     

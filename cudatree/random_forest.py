@@ -24,7 +24,7 @@ class RandomForestClassifier(object):
   COMPT_THREADS_PER_BLOCK = 128
   RESHUFFLE_THREADS_PER_BLOCK = 256
   
-  def __init__(self, n_estimators = 10, max_features = None, min_samples_split = 1, bootstrap = True, verbose = False):
+  def __init__(self, n_estimators = 10, max_features = None, min_samples_split = 1, bootstrap = True, verbose = False, debug = False):
     """Construce multiple trees in the forest.
 
     Parameters
@@ -55,6 +55,7 @@ class RandomForestClassifier(object):
     self.bootstrap = bootstrap
     self.verbose = verbose
     self.n_estimators = n_estimators
+    self.debug = debug
 
   def __compact_labels(self, target):
     def check_is_compacted(x):
@@ -194,7 +195,7 @@ class RandomForestClassifier(object):
     self.forest = [RandomDecisionTreeSmall(samples_gpu, labels_gpu, self.compt_table, 
       self.dtype_labels,self.dtype_samples, self.dtype_indices, self.dtype_counts,
       self.n_features, self.stride, self.n_labels, self.COMPT_THREADS_PER_BLOCK,
-      self.RESHUFFLE_THREADS_PER_BLOCK, self.max_features, self.min_samples_split, bfs_threshold) for i in xrange(self.n_estimators)]   
+      self.RESHUFFLE_THREADS_PER_BLOCK, self.max_features, self.min_samples_split, bfs_threshold, self.debug) for i in xrange(self.n_estimators)]   
    
     for i, tree in enumerate(self.forest):
       si, n_samples = self.__get_sorted_indices(sorted_indices)

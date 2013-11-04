@@ -5,6 +5,7 @@
 #define THREADS_PER_BLOCK 32
 #define IDX_DATA_TYPE %s
 #define MAX_BLOCK_PER_FEATURE %d
+#define DEBUG %d
 
 __global__ void reduce(
                       float *impurity_2d,

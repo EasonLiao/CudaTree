@@ -1,6 +1,7 @@
-#include<stdio.h>
-#include<math.h>
-#include<stdint.h>
+#include <stdio.h>
+#include <math.h>
+#include <stdint.h>
+#include <assert.h>
 
 #define THREADS_PER_BLOCK %d
 #define MAX_NUM_LABELS %d
@@ -8,6 +9,7 @@
 #define COUNT_DATA_TYPE %s
 #define IDX_DATA_TYPE %s
 #define MAX_BLOCK_PER_FEATURE %d
+#define DEBUG %d
 
 __global__ void count_total(
                         IDX_DATA_TYPE *sorted_indices,
@@ -48,8 +50,19 @@ __global__ void count_total(
     IDX_DATA_TYPE idx = i + threadIdx.x;
     if(idx < stop_pos)
       atomicAdd(shared_count + labels[sorted_indices[subset_offset + idx]], 1);
+  }
 
-  } 
+  #if DEBUG == 1
+  __syncthreads();
+  if(threadIdx.x == 0){
+    int sum = 0;
+    for(int i = 0; i < MAX_NUM_LABELS; ++i)
+      sum += shared_count[i];
+    
+    assert(sum == stop_pos - start_pos);
+  }
+  #endif
+
   __syncthreads();
 
   for(uint16_t i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x)

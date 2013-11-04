@@ -8,6 +8,7 @@
 #define LABEL_DATA_TYPE %s
 #define COUNT_DATA_TYPE %s
 #define IDX_DATA_TYPE %s
+#define DEBUG %d
 
 __device__ inline  float calc_imp_right(float* label_previous, float* label_now, COUNT_DATA_TYPE total_size){
   float sum = 0.0;
@@ -78,19 +79,25 @@ __global__ void compute(
   
   uint16_t visited_features = 0;
 
+#if DEBUG == 1
+  for(uint16_t f = 0; f < max_features; ++f){
+#else
   for(uint16_t f = 0; f < n_features; ++f){
-    
     if(visited_features == max_features)
       break;
+#endif
+
     
     uint16_t feature_idx = subset_indices[f];
     uint32_t offset = feature_idx * stride;
-    
+
+#if DEBUG == 0 
     if(samples[offset + p_sorted_indices[offset + reg_start_idx]] == 
         samples[offset + p_sorted_indices[offset + reg_stop_idx - 1]])
       continue;
 
     visited_features++;
+#endif
 
     //Reset shared_label_count array.
     for(uint16_t t = threadIdx.x; t < MAX_NUM_LABELS; t += blockDim.x)

@@ -1,0 +1,6 @@
+In debug mode, each dataset has nodes, used for debugging only :
+
+covtype : 114495
+cifar100 : 77341
+cifar10 : 10973
+inet : 11349
