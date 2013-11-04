@@ -10,8 +10,9 @@
 #define IDX_DATA_TYPE %s
 #define MAX_BLOCK_PER_FEATURE %d
 
-__device__  float calc_imp_right(COUNT_DATA_TYPE* label_previous, COUNT_DATA_TYPE* label_now, IDX_DATA_TYPE total_size){
-  float sum = 0.0; 
+__device__ inline float calc_imp_right(float* label_previous, float* label_now, IDX_DATA_TYPE total_size){
+  float sum = 0.0;
+#pragma unroll
   for(uint16_t i = 0; i < MAX_NUM_LABELS; ++i){
     float count = label_now[i] - label_previous[i];
     sum += count * count;
@@ -21,8 +22,9 @@ __device__  float calc_imp_right(COUNT_DATA_TYPE* label_previous, COUNT_DATA_TYP
   return 1.0 - (sum / denom); 
 }
 
-__device__  float calc_imp_left(COUNT_DATA_TYPE label_now[MAX_NUM_LABELS], IDX_DATA_TYPE total_size){
+__device__ inline float calc_imp_left(float* label_now, IDX_DATA_TYPE total_size){
   float sum = 0.0;
+#pragma unroll
   for(uint16_t i = 0; i < MAX_NUM_LABELS; ++i){
     float count = label_now[i];
     sum += count * count;
@@ -64,9 +66,9 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
   float reg_imp_left = 2.0;
   COUNT_DATA_TYPE reg_min_split = 0;
 
-  __shared__ COUNT_DATA_TYPE shared_count[MAX_NUM_LABELS];
+  __shared__ float shared_count[MAX_NUM_LABELS];
   __shared__ LABEL_DATA_TYPE shared_labels[THREADS_PER_BLOCK];
-  __shared__ COUNT_DATA_TYPE shared_count_total[MAX_NUM_LABELS];
+  __shared__ float shared_count_total[MAX_NUM_LABELS];
   __shared__ SAMPLE_DATA_TYPE shared_samples[THREADS_PER_BLOCK];
   
   uint32_t cur_offset = blockIdx.x * (MAX_BLOCK_PER_FEATURE + 1) * MAX_NUM_LABELS + blockIdx.y * MAX_NUM_LABELS;

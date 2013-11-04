@@ -42,6 +42,8 @@ __global__ void count_total(
   for(uint16_t i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x)
     shared_count[i] = 0;
   
+  __syncthreads();
+
   for(IDX_DATA_TYPE i = start_pos; i < stop_pos; i += blockDim.x){
     IDX_DATA_TYPE idx = i + threadIdx.x;
     if(idx < stop_pos)

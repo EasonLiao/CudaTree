@@ -24,22 +24,22 @@ def load_data(ds_name):
     ds = fetch_covtype(download_if_missing = True)
     x_train = ds.data 
     y_train = ds.target 
-  elif ds_name == "db":
+  elif ds_name == "cf10":
     with open(data_dir + "data_batch_1", "r") as f:
       ds = cPickle.load(f)
       x_train = ds['data']
       y_train = np.array(ds['labels'])
-  elif ds_name == "train":
+  elif ds_name == "cf100":
     with open(data_dir + "train", "r") as f:
       ds = cPickle.load(f)
       x_train = ds['data']
       y_train = np.array(ds['fine_labels'])
-  elif ds_name == "db_test":
+  elif ds_name == "cd10_test":
     with open(data_dir + "test_batch", "r") as f:
       ds = cPickle.load(f)
       x_train = ds['data']
       y_train = np.array(ds['labels'])
-  elif ds_name == "train_test":
+  elif ds_name == "cf100_test":
     with open(data_dir + "test", "r") as f:
       ds = cPickle.load(f)
       x_train = ds['data']

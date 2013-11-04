@@ -10,7 +10,9 @@ import random
 from parakeet import jit
 from util import start_timer, end_timer, show_timings
 
-sync = driver.Context.synchronize
+def sync():
+  if True:
+    driver.Context.synchronize()
 
 @jit
 def decorate(target, si_0, si_1, values_idx_array, values_si_idx_array, values_array, n_nodes):
@@ -631,30 +633,30 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       self.queue_size += 1
       return
     
-    subset_indices = self.get_indices()
-    #self.feature_selector.prepared_call(
-    #          (self.n_features, 1),
-    #          (1, 1, 1),
-    #          si_gpu_in.ptr + indices_offset,
-    #          self.samples_gpu.ptr,
-    #          self.feature_mask.ptr,
-    #          n_samples,
-    #          self.stride)
-    #
-    #selected_features = np.where(self.feature_mask.get())[0] 
-    #feature_num = selected_features.size
+    #subset_indices = self.get_indices()
+    self.feature_selector.prepared_call(
+              (self.n_features, 1),
+              (1, 1, 1),
+              si_gpu_in.ptr + indices_offset,
+              self.samples_gpu.ptr,
+              self.feature_mask.ptr,
+              n_samples,
+              self.stride)
+    
+    selected_features = np.where(self.feature_mask.get())[0] 
+    feature_num = selected_features.size
    
-    #if feature_num == self.n_features:
-    #  subset_indices = self.get_indices()
-    #else:
-    #  subset_indices = np.zeros(self.max_features, self.dtype_indices)
-    #  if feature_num < self.max_features:
-    #    max_features = feature_num
-    #  else:
-    #    max_features = self.max_features
+    if feature_num == self.n_features:
+      subset_indices = self.get_indices()
+    else:
+      subset_indices = np.zeros(self.max_features, self.dtype_indices)
+      if feature_num < self.max_features:
+        max_features = feature_num
+      else:
+        max_features = self.max_features
 
-    #  indices = np.array(random.sample(xrange(feature_num), max_features))
-    #  subset_indices[0 : max_features] = selected_features[indices].astype(self.dtype_indices)
+      indices = np.array(random.sample(xrange(feature_num), max_features))
+      subset_indices[0 : max_features] = selected_features[indices].astype(self.dtype_indices)
 
     cuda.memcpy_htod(self.subset_indices.ptr, subset_indices)
     

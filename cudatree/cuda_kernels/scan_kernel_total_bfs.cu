@@ -35,6 +35,7 @@ __global__ void count_total(
   else 
     p_sorted_indices = sorted_indices_2;
   
+  __syncthreads();
 
   for(IDX_DATA_TYPE i = reg_start_idx; i < reg_stop_idx; i += blockDim.x){
     IDX_DATA_TYPE idx = i + threadIdx.x;

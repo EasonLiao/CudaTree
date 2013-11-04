@@ -9,26 +9,28 @@
 #define COUNT_DATA_TYPE %s
 #define IDX_DATA_TYPE %s
 
-__device__  float calc_imp_right(COUNT_DATA_TYPE* label_previous, COUNT_DATA_TYPE* label_now, COUNT_DATA_TYPE total_size){
-  uint32_t sum = 0.0; 
+__device__ inline  float calc_imp_right(float* label_previous, float* label_now, COUNT_DATA_TYPE total_size){
+  float sum = 0.0;
+#pragma unroll
   for(LABEL_DATA_TYPE i = 0; i < MAX_NUM_LABELS; ++i){
-    uint32_t count = label_now[i] - label_previous[i];
+    float count = label_now[i] - label_previous[i];
     sum += count * count;
   }
  
-  uint32_t denom =  total_size * total_size;
-  return 1.0 - (float(sum) / denom); 
+  float denom =  ((float)total_size) * total_size;
+  return 1.0 - (sum / denom); 
 }
 
-__device__  float calc_imp_left(COUNT_DATA_TYPE* label_now, COUNT_DATA_TYPE total_size){
-  uint32_t sum = 0.0;
+__device__ inline  float calc_imp_left(float* label_now, COUNT_DATA_TYPE total_size){
+  float sum = 0.0;
+#pragma unroll
   for(LABEL_DATA_TYPE i = 0; i < MAX_NUM_LABELS; ++i){
-    uint32_t count = label_now[i];
+    float count = label_now[i];
     sum += count * count;
   }
   
-  uint32_t denom =  total_size * total_size;
-  return 1.0 - ((float)sum / denom); 
+  float denom =  ((float)total_size) * total_size;
+  return 1.0 - (sum / denom); 
 }
 
 
@@ -51,8 +53,8 @@ __global__ void compute(
   IDX_DATA_TYPE* p_sorted_indices;
   IDX_DATA_TYPE reg_start_idx;
   IDX_DATA_TYPE reg_stop_idx;
-  __shared__ IDX_DATA_TYPE shared_count_total[MAX_NUM_LABELS];
-  __shared__ IDX_DATA_TYPE shared_label_count[MAX_NUM_LABELS];
+  __shared__ float shared_count_total[MAX_NUM_LABELS];
+  __shared__ float shared_label_count[MAX_NUM_LABELS];
   __shared__ LABEL_DATA_TYPE shared_labels[THREADS_PER_BLOCK];
   __shared__ SAMPLE_DATA_TYPE shared_samples[THREADS_PER_BLOCK + 1];
  
@@ -92,7 +94,7 @@ __global__ void compute(
 
     //Reset shared_label_count array.
     for(uint16_t t = threadIdx.x; t < MAX_NUM_LABELS; t += blockDim.x)
-      shared_label_count[t] = 0;
+      shared_label_count[t] = 0.0;
     
     __syncthreads();
 
