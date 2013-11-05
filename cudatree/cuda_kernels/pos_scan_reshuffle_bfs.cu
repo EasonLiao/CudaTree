@@ -10,7 +10,6 @@
 texture<char, 1> tex_mark;
 
 __global__ void scan_reshuffle(
-                          uint8_t* mark_table,
                           uint8_t* si_idx,
                           IDX_DATA_TYPE* sorted_indices_1,
                           IDX_DATA_TYPE* sorted_indices_2,

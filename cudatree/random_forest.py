@@ -142,7 +142,9 @@ class RandomForestClassifier(object):
     assert samples.size / samples[0].size == target.size
 
     target = target.copy()
+    start_timer("compact labels")
     self.__compact_labels(target)
+    end_timer("compact labels")
     
     self.n_labels = self.compt_table.size 
     self.dtype_indices = get_best_dtype(target.size)
@@ -154,8 +156,11 @@ class RandomForestClassifier(object):
     self.dtype_labels = get_best_dtype(self.n_labels)
     self.dtype_samples = samples.dtype
    
+    start_timer("transpose")
     samples = np.require(np.transpose(samples), requirements = 'C')
     target = np.require(np.transpose(target), dtype = self.dtype_labels, requirements = 'C') 
+    end_timer("transpose")
+    
     self.n_features = samples.shape[0]
     self.stride = target.size
     
@@ -163,16 +168,16 @@ class RandomForestClassifier(object):
       self.COMPT_THREADS_PER_BLOCK = 32
     if self.RESHUFFLE_THREADS_PER_BLOCK > self.stride:
       self.RESHUFFLE_THREADS_PER_BLOCK = 32
-
+    
+    start_timer("samples labels to gpu")
     samples_gpu = gpuarray.to_gpu(samples)
     labels_gpu = gpuarray.to_gpu(target) 
+    end_timer("samples labels to gpu")
     
-    sorted_indices = np.empty((self.n_features, self.stride), dtype = self.dtype_indices)
-    
-    for i,f in enumerate(samples):
-      sort_idx = np.argsort(f)
-      sorted_indices[i] = sort_idx  
-  
+    start_timer("argsort")
+    sorted_indices = np.argsort(samples).astype(self.dtype_indices)
+    end_timer("argsort")
+
     if bfs_threshold is None:
       bfs_threshold = int(math.ceil(float(self.stride) / 40))
       if bfs_threshold < 50:
@@ -198,7 +203,10 @@ class RandomForestClassifier(object):
       self.RESHUFFLE_THREADS_PER_BLOCK, self.max_features, self.min_samples_split, bfs_threshold, self.debug) for i in xrange(self.n_estimators)]   
    
     for i, tree in enumerate(self.forest):
+      start_timer("get sorted indices")
       si, n_samples = self.__get_sorted_indices(sorted_indices)
+      end_timer("get sorted indices")
+
       if self.verbose: 
         with timer("Tree %s" % (i,)):
           tree.fit(samples, target, si, n_samples)   

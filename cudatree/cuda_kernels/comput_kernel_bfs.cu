@@ -58,8 +58,10 @@ __global__ void compute(
     p_sorted_indices = sorted_indices_1;
   else
     p_sorted_indices = sorted_indices_2;
-  
+ 
+#if DEBUG == 0
   uint16_t visited_features = 0;
+#endif 
 
 #if DEBUG == 1
   for(uint16_t f = 0; f < max_features; ++f){
@@ -98,10 +100,9 @@ __global__ void compute(
       __syncthreads();
 
       if(tidx == 0){
-        IDX_DATA_TYPE stop_pos = (i + step < reg_stop_idx - 1)? i + step : reg_stop_idx - 1;
-        //shared_samples[stop_pos - i] = samples[offset + p_sorted_indices[offset + stop_pos]];
+        IDX_DATA_TYPE stop_pos = (i + step < reg_stop_idx - 1)? step : reg_stop_idx - 1 - i;
         
-        for(IDX_DATA_TYPE t = 0; t < stop_pos - i; ++t){
+        for(IDX_DATA_TYPE t = 0; t < stop_pos; ++t){
           shared_label_count[shared_labels[t]]++;
           if(shared_samples[t] == shared_samples[t + 1])
             continue;

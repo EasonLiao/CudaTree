@@ -64,21 +64,25 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
       shared_count_total[i] = label_total_2d[last_offset + i];
   }
   
-  IDX_DATA_TYPE stop_pos = ((bidy + 1) * n_range + 1 < n_samples)? (bidy + 1) * n_range + 1 : n_samples;
+  IDX_DATA_TYPE stop_pos = ((bidy + 1) * n_range  < n_samples - 1)? (bidy + 1) * n_range : n_samples - 1;
 
-  for(IDX_DATA_TYPE i = bidy * n_range + tidx; i < stop_pos; i += step){ 
-    IDX_DATA_TYPE idx = sorted_indices[offset + i];
-    shared_labels[tidx] = labels[idx]; 
-    shared_samples[tidx] = samples[offset + idx];
+  for(IDX_DATA_TYPE i = bidy * n_range; i < stop_pos; i += step){ 
+    IDX_DATA_TYPE index = i + tidx;
+    IDX_DATA_TYPE idx;
 
+    if(index < stop_pos + 1){
+      idx = sorted_indices[offset + index];
+      shared_labels[tidx] = labels[idx]; 
+      shared_samples[tidx] = samples[offset + idx];
+    }
     __syncthreads();
      
     if(tidx == 0){
-      IDX_DATA_TYPE end_pos = (i + step < stop_pos)? step : stop_pos - i - 1;
+      IDX_DATA_TYPE end_pos = (i + step < stop_pos)? step : stop_pos - i;
       
         for(IDX_DATA_TYPE t = 0; t < end_pos; ++t){
           #if DEBUG == 1
-          assert(shared_labels[t] >= 0 && shared_labels[t] < MAX_NUM_LABELS);
+          assert(shared_labels[t] < MAX_NUM_LABELS);
           #endif
 
           shared_count[shared_labels[t]]++;

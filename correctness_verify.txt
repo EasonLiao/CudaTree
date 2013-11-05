@@ -4,3 +4,4 @@ covtype : 114495
 cifar100 : 77341
 cifar10 : 10973
 inet : 11349
+kdd : 991
