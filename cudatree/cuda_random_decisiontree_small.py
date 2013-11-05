@@ -311,16 +311,15 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       self.__bfs()
   
   def __bfs(self):
-
     idx_array_gpu = gpuarray.to_gpu(self.idx_array[0 : self.queue_size * 2])
     si_idx_array_gpu = gpuarray.to_gpu(self.si_idx_array[0 : self.queue_size])
     subset_indices_array_gpu = gpuarray.empty(self.n_features, dtype = self.dtype_indices)
-    min_feature_idx_gpu = gpuarray.empty(self.queue_size, dtype = np.uint16)
     
     self.label_total = gpuarray.empty(self.queue_size * self.n_labels, dtype = self.dtype_counts)  
-    impurity_gpu = gpuarray.empty(self.queue_size * 2, dtype = np.float32)
-    self.min_split = gpuarray.empty(self.queue_size, dtype = self.dtype_indices) 
-    threshold_value = gpuarray.empty(self.queue_size, dtype = np.float32)
+    impurity_gpu = gpuarray.empty(self.queue_size * 2 * self.max_features, dtype = np.float32)
+    self.min_split = gpuarray.empty(self.queue_size * self.max_features, dtype = self.dtype_indices) 
+    threshold_value = gpuarray.empty(self.queue_size * self.max_features, dtype = np.float32)
+    min_feature_idx_gpu = gpuarray.empty(self.queue_size * self.max_features, dtype = np.uint16)
 
     cuda.memcpy_htod(subset_indices_array_gpu.ptr, self.features_array) 
     
@@ -618,8 +617,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       if error_rate == 0.0:
         return True
       else:
-        return False 
-    
+        return False     
 
     n_samples = stop_idx - start_idx 
     indices_offset =  start_idx * self.dtype_indices.itemsize    
@@ -641,31 +639,33 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       self.nid_array[self.queue_size] = nid
       self.queue_size += 1
       return
-    
-    subset_indices = self.get_indices()
-    #self.feature_selector.prepared_call(
-    #          (self.n_features, 1),
-    #          (1, 1, 1),
-    #          si_gpu_in.ptr + indices_offset,
-    #          self.samples_gpu.ptr,
-    #          self.feature_mask.ptr,
-    #          n_samples,
-    #          self.stride)
-    #
-    #selected_features = np.where(self.feature_mask.get())[0] 
-    #feature_num = selected_features.size
-   
-    #if feature_num == self.n_features:
-    #  subset_indices = self.get_indices()
-    #else:
-    #  subset_indices = np.zeros(self.max_features, self.dtype_indices)
-    #  if feature_num < self.max_features:
-    #    max_features = feature_num
-    #  else:
-    #    max_features = self.max_features
 
-    #  indices = np.array(random.sample(xrange(feature_num), max_features))
-    #  subset_indices[0 : max_features] = selected_features[indices].astype(self.dtype_indices)
+    if self.debug: 
+      subset_indices = self.get_indices()
+    else:
+      self.feature_selector.prepared_call(
+                (self.n_features, 1),
+                (1, 1, 1),
+                si_gpu_in.ptr + indices_offset,
+                self.samples_gpu.ptr,
+                self.feature_mask.ptr,
+                n_samples,
+                self.stride)
+      
+      selected_features = np.where(self.feature_mask.get())[0] 
+      feature_num = selected_features.size
+     
+      if feature_num == self.n_features:
+        subset_indices = self.get_indices()
+      else:
+        subset_indices = np.zeros(self.max_features, self.dtype_indices)
+        if feature_num < self.max_features:
+          max_features = feature_num
+        else:
+          max_features = self.max_features
+
+        indices = np.array(random.sample(xrange(feature_num), max_features))
+        subset_indices[0 : max_features] = selected_features[indices].astype(self.dtype_indices)
 
     cuda.memcpy_htod(self.subset_indices.ptr, subset_indices)
     

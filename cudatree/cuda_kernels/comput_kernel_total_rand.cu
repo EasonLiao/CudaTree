@@ -9,27 +9,7 @@
 #define COUNT_DATA_TYPE %s
 #define IDX_DATA_TYPE %s
 
-__device__  float calc_imp_right(COUNT_DATA_TYPE *label_previous, COUNT_DATA_TYPE *label_now, uint32_t total_size){
-  uint32_t sum = 0.0; 
-  for(uint16_t i = 0; i < MAX_NUM_LABELS; ++i){
-    uint32_t count = label_now[i] - label_previous[i];
-    sum += count * count;
-  }
-
-  uint32_t denom =  total_size * total_size;
-  return 1.0 - ((float)sum / denom); 
-}
-
-__device__  float calc_imp_left(COUNT_DATA_TYPE *label_now, uint32_t total_size){
-  uint32_t sum = 0.0;
-  for(uint16_t i = 0; i < MAX_NUM_LABELS; ++i){
-    uint32_t count = label_now[i];
-    sum += count * count;
-  }
-  
-  uint32_t denom =  total_size * total_size;
-  return 1.0 - ((float)sum / denom); 
-}
+#include "common_func.cu"
 
 __global__ void compute(IDX_DATA_TYPE *sorted_indices,
                         SAMPLE_DATA_TYPE *samples, 
@@ -47,9 +27,9 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
   float reg_imp_left = 2.0;
   COUNT_DATA_TYPE reg_min_split = 0;
 
-  __shared__ COUNT_DATA_TYPE shared_count[MAX_NUM_LABELS];
+  __shared__ float shared_count[MAX_NUM_LABELS];
+  __shared__ float shared_count_total[MAX_NUM_LABELS];
   __shared__ LABEL_DATA_TYPE shared_labels[THREADS_PER_BLOCK];
-  __shared__ COUNT_DATA_TYPE shared_count_total[MAX_NUM_LABELS];
   __shared__ SAMPLE_DATA_TYPE shared_samples[THREADS_PER_BLOCK];
   
 

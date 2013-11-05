@@ -5,6 +5,7 @@ from os import path
 import operator
 
 _kernel_cache = {}
+kernels_dir = path.dirname(__file__) + "/cuda_kernels/"
 
 def get_best_dtype(max_value):
   """ Find the best dtype to minimize the memory usage"""
@@ -39,7 +40,7 @@ def dtype_to_ctype(dtype):
   return "%s_t" % dtype 
 
 def mk_kernel(params, func_name, kernel_file, prepare_args = None):
-  kernel_file = path.dirname(__file__) + "/cuda_kernels/" + kernel_file
+  kernel_file = kernels_dir + kernel_file
   key = (params, kernel_file, prepare_args)
   if key in _kernel_cache:
     return _kernel_cache[key]
@@ -47,14 +48,14 @@ def mk_kernel(params, func_name, kernel_file, prepare_args = None):
   with open(kernel_file) as code_file:
     code = code_file.read()
     src = code % params
-    mod = SourceModule(src)
+    mod = SourceModule(src, include_dirs = [kernels_dir])
     fn = mod.get_function(func_name)
     if prepare_args is not None: fn.prepare(prepare_args)
     _kernel_cache[key] = fn
     return fn
 
 def mk_tex_kernel(params, func_name, tex_name, kernel_file, prepare_args = None):
-  kernel_file = path.dirname(__file__) + "/cuda_kernels/" + kernel_file
+  kernel_file = kernels_dir + kernel_file
   key = (params, kernel_file, prepare_args)
   if key in _kernel_cache:
     return _kernel_cache[key]
@@ -62,7 +63,7 @@ def mk_tex_kernel(params, func_name, tex_name, kernel_file, prepare_args = None)
   with open(kernel_file) as code_file:
     code = code_file.read()
     src = code % params
-    mod = SourceModule(src)
+    mod = SourceModule(src, include_dirs = [kernels_dir])
     fn = mod.get_function(func_name)
     tex = mod.get_texref(tex_name)
     if prepare_args is not None: fn.prepare(prepare_args)

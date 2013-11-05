@@ -10,30 +10,7 @@
 #define IDX_DATA_TYPE %s
 #define DEBUG %d
 
-__device__ inline  float calc_imp_right(float* label_previous, float* label_now, COUNT_DATA_TYPE total_size){
-  float sum = 0.0;
-#pragma unroll
-  for(LABEL_DATA_TYPE i = 0; i < MAX_NUM_LABELS; ++i){
-    float count = label_now[i] - label_previous[i];
-    sum += count * count;
-  }
- 
-  float denom =  ((float)total_size) * total_size;
-  return 1.0 - (sum / denom); 
-}
-
-__device__ inline  float calc_imp_left(float* label_now, COUNT_DATA_TYPE total_size){
-  float sum = 0.0;
-#pragma unroll
-  for(LABEL_DATA_TYPE i = 0; i < MAX_NUM_LABELS; ++i){
-    float count = label_now[i];
-    sum += count * count;
-  }
-  
-  float denom =  ((float)total_size) * total_size;
-  return 1.0 - (sum / denom); 
-}
-
+#include "common_func.cu"
 
 __global__ void compute(
                         SAMPLE_DATA_TYPE *samples, 
@@ -57,21 +34,26 @@ __global__ void compute(
   __shared__ float shared_count_total[MAX_NUM_LABELS];
   __shared__ float shared_label_count[MAX_NUM_LABELS];
   __shared__ LABEL_DATA_TYPE shared_labels[THREADS_PER_BLOCK];
-  __shared__ SAMPLE_DATA_TYPE shared_samples[THREADS_PER_BLOCK + 1];
- 
-  reg_start_idx = begin_stop_idx[2 * blockIdx.x];
-  reg_stop_idx = begin_stop_idx[2 * blockIdx.x + 1];
+  __shared__ SAMPLE_DATA_TYPE shared_samples[THREADS_PER_BLOCK];
   
+
+  uint16_t bidx = blockIdx.x;
+  uint16_t tidx = threadIdx.x;
+  
+  reg_start_idx = begin_stop_idx[2 * bidx];
+  reg_stop_idx = begin_stop_idx[2 * bidx + 1];
+  
+  uint16_t step = blockDim.x - 1;
   float reg_min_left = 2.0;
   float reg_min_right = 2.0;
   uint16_t reg_min_fidx = 0;
   IDX_DATA_TYPE reg_min_split = reg_stop_idx;
 
-  for(uint16_t i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x)
-    shared_count_total[i] = label_total[blockIdx.x * MAX_NUM_LABELS + i];
+  for(uint16_t i = tidx; i < MAX_NUM_LABELS; i += blockDim.x)
+    shared_count_total[i] = label_total[bidx * MAX_NUM_LABELS + i];
  
   
-  uint8_t reg_si_idx = si_idx[blockIdx.x];
+  uint8_t reg_si_idx = si_idx[bidx];
   if(reg_si_idx == 0)
     p_sorted_indices = sorted_indices_1;
   else
@@ -100,24 +82,24 @@ __global__ void compute(
 #endif
 
     //Reset shared_label_count array.
-    for(uint16_t t = threadIdx.x; t < MAX_NUM_LABELS; t += blockDim.x)
+    for(uint16_t t = tidx; t < MAX_NUM_LABELS; t += blockDim.x)
       shared_label_count[t] = 0.0;
     
     __syncthreads();
 
-    for(IDX_DATA_TYPE i = reg_start_idx; i < reg_stop_idx - 1; i += blockDim.x){
-      IDX_DATA_TYPE idx = i + threadIdx.x;
+    for(IDX_DATA_TYPE i = reg_start_idx; i < reg_stop_idx - 1; i += step){
+      IDX_DATA_TYPE idx = i + tidx;
 
-      if(idx < reg_stop_idx - 1){
-        shared_labels[threadIdx.x] = labels[p_sorted_indices[offset + idx]];
-        shared_samples[threadIdx.x] = samples[offset + p_sorted_indices[offset + idx]];
+      if(idx < reg_stop_idx){
+        shared_labels[tidx] = labels[p_sorted_indices[offset + idx]];
+        shared_samples[tidx] = samples[offset + p_sorted_indices[offset + idx]];
       }
 
       __syncthreads();
 
-      if(threadIdx.x == 0){
-        IDX_DATA_TYPE stop_pos = (i + blockDim.x < reg_stop_idx - 1)? i + blockDim.x : reg_stop_idx - 1;
-        shared_samples[stop_pos - i] = samples[offset + p_sorted_indices[offset + stop_pos]];
+      if(tidx == 0){
+        IDX_DATA_TYPE stop_pos = (i + step < reg_stop_idx - 1)? i + step : reg_stop_idx - 1;
+        //shared_samples[stop_pos - i] = samples[offset + p_sorted_indices[offset + stop_pos]];
         
         for(IDX_DATA_TYPE t = 0; t < stop_pos - i; ++t){
           shared_label_count[shared_labels[t]]++;
@@ -145,11 +127,11 @@ __global__ void compute(
     __syncthreads();
   } 
   
-  if(threadIdx.x == 0){
-    imp_min[2 * blockIdx.x] = reg_min_left;
-    imp_min[2 * blockIdx.x + 1] = reg_min_right;
-    split[blockIdx.x] = reg_min_split;
-    min_feature_idx[blockIdx.x] = reg_min_fidx;
+  if(tidx == 0){
+    imp_min[2 * bidx] = reg_min_left;
+    imp_min[2 * bidx + 1] = reg_min_right;
+    split[bidx] = reg_min_split;
+    min_feature_idx[bidx] = reg_min_fidx;
   }
 }
 
