@@ -3,7 +3,8 @@ import pycuda.driver as cuda
 from pycuda import gpuarray
 import numpy as np
 import math
-from util import total_times, mk_kernel, mk_tex_kernel, timer, dtype_to_ctype, get_best_dtype, start_timer, end_timer
+from util import total_times, compile_module, mk_kernel, mk_tex_kernel, timer
+from util import  dtype_to_ctype, get_best_dtype, start_timer, end_timer
 from cuda_random_base_tree import RandomBaseTree
 from pycuda import driver
 import random
@@ -12,7 +13,7 @@ from util import start_timer, end_timer, show_timings
 import sys
 
 def sync():
-  if False:
+  if True:
     driver.Context.synchronize()
 
 @jit
@@ -137,123 +138,70 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     n_labels = self.n_labels
     n_threads = self.COMPT_THREADS_PER_BLOCK
     n_shf_threads = self.RESHUFFLE_THREADS_PER_BLOCK
-
-    self.fill_kernel = mk_kernel(
-      params = (ctype_indices,), 
-      func_name = "fill_table", 
-      kernel_file = "fill_table_si.cu", 
-      prepare_args = "PiiPi")
-      
-    self.scan_total_kernel = mk_kernel(
-        params = (n_threads, n_labels, ctype_labels, ctype_counts, ctype_indices), 
-        func_name = "count_total", 
-        kernel_file = "scan_kernel_total_si.cu", 
-        prepare_args = "PPPi") 
     
-    self.comput_total_kernel = mk_kernel(
-      params = (n_threads, n_labels, ctype_samples, 
-                ctype_labels, ctype_counts, ctype_indices), 
-      func_name = "compute", 
-      kernel_file = "comput_kernel_total_rand.cu", 
-      prepare_args = "PPPPPPPPii")
-         
-    self.scan_reshuffle_tex, tex_ref = mk_tex_kernel(
-      params = (ctype_indices, n_shf_threads), 
-      func_name = "scan_reshuffle", 
-      tex_name = "tex_mark", 
-      kernel_file = "pos_scan_reshuffle_si_c_tex.cu", 
-      prepare_args = "PPPiii")   
+    """ DFS module """
+    dfs_module = compile_module("dfs_module.cu", (n_threads, n_shf_threads, n_labels, ctype_samples,
+      ctype_labels, ctype_counts, ctype_indices, self.MAX_BLOCK_PER_FEATURE, self.debug))
+    
+    self.find_min_kernel = dfs_module.get_function("find_min_imp")
+    self.find_min_kernel.prepare("PPPi")
+  
+    self.fill_kernel = dfs_module.get_function("fill_table")
+    self.fill_kernel.prepare("PiiPi")
+    
+    self.scan_reshuffle_tex = dfs_module.get_function("scan_reshuffle")
+    self.scan_reshuffle_tex.prepare("PPiii")
+    tex_ref = dfs_module.get_texref("tex_mark")
     self.mark_table.bind_to_texref_ext(tex_ref) 
-     
-    self.find_min_kernel = mk_kernel(
-      params = (ctype_counts, 32), 
-      func_name = "find_min_imp", 
-      kernel_file = "find_min_gini.cu", 
-      prepare_args = "PPPi")
+      
+    self.comput_total_2d = dfs_module.get_function("compute_2d")
+    self.comput_total_2d.prepare("PPPPPPPiii")
+
+    self.reduce_2d = dfs_module.get_function("reduce_2d")
+    self.reduce_2d.prepare("PPPPPi")
     
+    self.comput_total_kernel = dfs_module.get_function("compute_gini_small")
+    self.comput_total_kernel.prepare("PPPPPPPPii")
+    
+    self.scan_total_kernel = dfs_module.get_function("scan_gini_small")
+    self.scan_total_kernel.prepare("PPPi")
+    
+    self.scan_total_2d = dfs_module.get_function("scan_gini_large")
+    self.scan_total_2d.prepare("PPPPiii")
+    
+    self.scan_reduce = dfs_module.get_function("scan_reduce")
+    self.scan_reduce.prepare("Pi")
+
+    """ BFS module """
+    bfs_module = compile_module("bfs_module.cu", (self.BFS_THREADS, n_labels, ctype_samples,
+      ctype_labels, ctype_counts, ctype_indices,  self.debug))
+   
+    self.scan_total_bfs = bfs_module.get_function("scan_bfs")
+    self.scan_total_bfs.prepare("PPPPPP")
+
+    self.comput_bfs_2d = bfs_module.get_function("compute_2d")
+    self.comput_bfs_2d.prepare("PPPPPPPPPPPiii")
+
+    self.fill_bfs = bfs_module.get_function("fill_table")
+    self.fill_bfs.prepare("PPPPPPPi")
+
+    self.reshuffle_bfs = bfs_module.get_function("scan_reshuffle")
+    tex_ref = bfs_module.get_texref("tex_mark")
+    self.mark_table.bind_to_texref_ext(tex_ref) 
+    self.reshuffle_bfs.prepare("PPPPPii") 
+
+    self.reduce_bfs_2d = bfs_module.get_function("reduce")
+    self.reduce_bfs_2d.prepare("PPPPPPi")
+    
+    self.get_thresholds = bfs_module.get_function("get_thresholds")
+    self.get_thresholds.prepare("PPPPPPPi")
+   
     self.predict_kernel = mk_kernel(
         params = (ctype_indices, ctype_samples, ctype_labels), 
         func_name = "predict", 
         kernel_file = "predict.cu", 
         prepare_args = "PPPPPPPii")
-  
-    self.scan_total_bfs = mk_kernel(
-      params = (self.BFS_THREADS, n_labels, ctype_labels, ctype_counts, ctype_indices), 
-      func_name = "count_total", 
-      kernel_file = "scan_kernel_total_bfs.cu", 
-      prepare_args = "PPPPPP")
-  
-    self.comput_bfs = mk_kernel(
-      params = (self.BFS_THREADS, n_labels, ctype_samples, 
-                ctype_labels, ctype_counts, ctype_indices, self.debug), 
-      func_name = "compute", 
-      kernel_file = "comput_kernel_bfs.cu", 
-      prepare_args = "PPPPPPPPPPPiii")
-    
-    self.fill_bfs = mk_kernel(
-      params = (ctype_indices,), 
-      func_name = "fill_table", 
-      kernel_file = "fill_table_bfs.cu", 
-      prepare_args = "PPPPPPPi")
-    
-    self.reshuffle_bfs, tex_ref = mk_tex_kernel(
-      params = (ctype_indices, self.BFS_THREADS), 
-      func_name = "scan_reshuffle", 
-      tex_name= "tex_mark", 
-      kernel_file = "pos_scan_reshuffle_bfs.cu", 
-      prepare_args = "PPPPPii")
-    self.mark_table.bind_to_texref_ext(tex_ref) 
-    
-    self.comput_total_2d = mk_kernel(
-      params = (n_threads, n_labels, ctype_samples, ctype_labels, ctype_counts, 
-                ctype_indices, self.MAX_BLOCK_PER_FEATURE, self.debug), 
-      func_name = "compute", 
-      kernel_file = "comput_kernel_2d.cu", 
-      prepare_args = "PPPPPPPiii")
 
-    self.reduce_2d = mk_kernel(
-      params = (ctype_indices, self.MAX_BLOCK_PER_FEATURE, self.debug), 
-      func_name = "reduce", 
-      kernel_file = "reduce_2d.cu", 
-      prepare_args = "PPPPPi")
-    
-    self.scan_total_2d = mk_kernel(
-      params = (n_threads, n_labels, ctype_labels, ctype_counts, 
-                ctype_indices, self.MAX_BLOCK_PER_FEATURE, self.debug),
-      func_name = "count_total", 
-      kernel_file = "scan_kernel_2d.cu", 
-      prepare_args = "PPPPiii")
-    
-    self.scan_reduce = mk_kernel(
-      params = (n_labels, ctype_indices, self.MAX_BLOCK_PER_FEATURE), 
-      func_name = "scan_reduce", 
-      kernel_file = "scan_reduce.cu", 
-      prepare_args = "Pi")
-    
-    self.get_thresholds = mk_kernel(
-      params = (ctype_indices, ctype_samples), 
-      func_name = "get_thresholds", 
-      kernel_file = "get_thresholds.cu", 
-      prepare_args = "PPPPPPPi")
-    
-    self.feature_selector = mk_kernel(
-      params = (ctype_indices, ctype_samples), 
-      func_name = "feature_selector", 
-      kernel_file = "feature_selector.cu", 
-      prepare_args = "PPPii")
-    
-    self.comput_bfs_2d = mk_kernel(
-      params = (self.BFS_THREADS, n_labels, ctype_samples, 
-                ctype_labels, ctype_counts, ctype_indices, self.debug), 
-      func_name = "compute", 
-      kernel_file = "comput_kernel_bfs_2d.cu", 
-      prepare_args = "PPPPPPPPPPPiii")
-    
-    self.reduce_bfs_2d = mk_kernel(
-        params = (32, ctype_indices, self.debug),
-        func_name = "reduce",
-        kernel_file = "reduce_bfs_2d.cu",
-        prepare_args = "PPPPPPi")
 
   def __allocate_gpuarrays(self):
     if self.max_features < 4:
@@ -359,8 +307,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     sync()
     end_timer("gini bfs scan")
       
-    start_timer("gini bfs comput")
-    
+    start_timer("gini bfs comput")  
     """
     self.comput_bfs.prepared_call(
           (self.queue_size, 1),
@@ -470,12 +417,17 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     nid_array = self.nid_array
     
     start_timer("get in bfs")
-    imp_min = impurity_gpu.get()
-    min_split = self.min_split.get()
-    feature_idx = min_feature_idx_gpu.get()
-    si_idx_array = self.si_idx_array 
-    threshold = threshold_value.get()
+    imp_min = cuda.pagelocked_empty(self.queue_size * 2, np.float32)
+    min_split = cuda.pagelocked_empty(self.queue_size, self.dtype_indices)
+    feature_idx = cuda.pagelocked_empty(self.queue_size, np.uint16)
+    threshold = cuda.pagelocked_empty(self.queue_size, np.float32) 
+    cuda.memcpy_dtoh(imp_min, impurity_gpu.ptr)
+    cuda.memcpy_dtoh(min_split, self.min_split.ptr)
+    cuda.memcpy_dtoh(feature_idx, min_feature_idx_gpu.ptr)
+    cuda.memcpy_dtoh(threshold, threshold_value.ptr) 
     end_timer("get in bfs")
+    
+    si_idx_array = self.si_idx_array 
 
     start_timer("bfs loop")
     self.n_nodes, self.queue_size, self.idx_array, self.si_idx_array, self.nid_array = bfs_loop(self.queue_size, self.n_nodes, 
@@ -712,29 +664,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     if True:
       self.__shuffle_features()
     else:
-      self.feature_selector.prepared_call(
-                (self.n_features, 1),
-                (1, 1, 1),
-                si_gpu_in.ptr + indices_offset,
-                self.samples_gpu.ptr,
-                self.feature_mask.ptr,
-                n_samples,
-                self.stride)
-      
-      selected_features = np.where(self.feature_mask.get())[0] 
-      feature_num = selected_features.size
-     
-      if feature_num == self.n_features:
-        subset_indices = self.get_indices()
-      else:
-        subset_indices = np.zeros(self.max_features, self.dtype_indices)
-        if feature_num < self.max_features:
-          max_features = feature_num
-        else:
-          max_features = self.max_features
-
-        indices = np.array(random.sample(xrange(feature_num), max_features))
-        subset_indices[0 : max_features] = selected_features[indices].astype(self.dtype_indices)
+      pass
 
     start_timer("dfs get indices")
     cuda.memcpy_htod_async(self.features_array_gpu.ptr, self.features_array)
@@ -773,7 +703,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.scan_reshuffle_tex.prepared_call(
                       (self.n_features, 1),
                       block,
-                      self.mark_table.ptr,
                       si_gpu_in.ptr + indices_offset,
                       si_gpu_out.ptr + indices_offset,
                       n_samples,

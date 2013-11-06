@@ -5,7 +5,26 @@ from os import path
 import operator
 
 _kernel_cache = {}
+
+_module_cache = {}
+
 kernels_dir = path.dirname(__file__) + "/cuda_kernels/"
+
+def compile_module(module_file, params):
+  module_file = kernels_dir + module_file
+  key = (module_file, params)
+  if key in _module_cache:
+    return _module_cache[key]
+  
+  with open(module_file) as code_file:
+    start_timer("compile module")
+    code = code_file.read()
+    src = code % params
+    mod = SourceModule(src, include_dirs = [kernels_dir])
+    _module_cache[key] = mod
+    end_timer("compile module")
+    return mod
+
 
 def get_best_dtype(max_value):
   """ Find the best dtype to minimize the memory usage"""
