@@ -20,7 +20,7 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
                         float *impurity_2d, 
                         COUNT_DATA_TYPE *label_total_2d,
                         COUNT_DATA_TYPE *split, 
-                        IDX_DATA_TYPE *subset_indices,
+                        uint16_t *subset_indices,
                         int n_range,
                         int n_samples, 
                         int stride){

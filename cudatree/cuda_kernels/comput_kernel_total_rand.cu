@@ -18,7 +18,7 @@ __global__ void compute(IDX_DATA_TYPE *sorted_indices,
                         float *imp_right, 
                         COUNT_DATA_TYPE *label_total,
                         COUNT_DATA_TYPE *split, 
-                        IDX_DATA_TYPE *subset_indices,
+                        uint16_t *subset_indices,
                         int n_samples, 
                         int stride){
   uint32_t offset = subset_indices[blockIdx.x] * stride;

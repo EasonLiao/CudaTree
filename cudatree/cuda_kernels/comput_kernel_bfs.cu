@@ -20,7 +20,7 @@ __global__ void compute(
                         uint32_t *begin_stop_idx,
                         uint8_t *si_idx,
                         COUNT_DATA_TYPE *label_total,
-                        IDX_DATA_TYPE *subset_indices, 
+                        uint16_t *subset_indices, 
                         float *imp_min, 
                         COUNT_DATA_TYPE *split,
                         uint16_t *min_feature_idx,

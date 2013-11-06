@@ -15,7 +15,7 @@ __global__ void count_total(
                         IDX_DATA_TYPE *sorted_indices,
                         LABEL_DATA_TYPE *labels, 
                         COUNT_DATA_TYPE *label_total_2d,
-                        IDX_DATA_TYPE *subset_indices,
+                        uint16_t *subset_indices,
                         int n_range,
                         int n_samples,
                         int stride

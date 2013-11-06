@@ -89,7 +89,7 @@ class RandomForestClassifier(object):
   def __get_sorted_indices(self, sorted_indices):
     """ Generate sorted indices, if bootstrap == False, then the sorted indices is as same as original sorted indices """
     
-    sorted_indices_gpu_original = gpuarray.to_gpu(sorted_indices)
+    sorted_indices_gpu_original = gpuarray.to_gpu_async(sorted_indices)
 
     if not self.bootstrap:
       return sorted_indices_gpu_original, sorted_indices.shape[1]
