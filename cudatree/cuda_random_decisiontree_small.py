@@ -111,7 +111,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
   def __init__(self, samples_gpu, labels_gpu, compt_table, dtype_labels, dtype_samples, 
       dtype_indices, dtype_counts, n_features, stride, n_labels, n_threads, n_shf_threads, max_features = None,
-      min_samples_split = None, bfs_threshold = 64, debug = False):
+      min_samples_split = None, bfs_threshold = 64, debug = False, forest = None):
     self.root = None
     self.n_labels = n_labels
     self.stride = stride
@@ -128,6 +128,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.max_features = max_features
     self.min_samples_split =  min_samples_split
     self.bfs_threshold = bfs_threshold
+    self.forest = forest
     if debug == False:
       self.debug = 0
     else:
@@ -144,77 +145,42 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       shuffle(self.features_array)
 
   def __compile_kernels(self):
-    ctype_indices = dtype_to_ctype(self.dtype_indices)
-    ctype_labels = dtype_to_ctype(self.dtype_labels)
-    ctype_counts = dtype_to_ctype(self.dtype_counts)
-    ctype_samples = dtype_to_ctype(self.dtype_samples)
-    n_labels = self.n_labels
-    n_threads = self.COMPT_THREADS_PER_BLOCK
-    n_shf_threads = self.RESHUFFLE_THREADS_PER_BLOCK
-    
     """ DFS module """
-    dfs_module = compile_module("dfs_module.cu", (n_threads, n_shf_threads, n_labels, ctype_samples,
-      ctype_labels, ctype_counts, ctype_indices, self.MAX_BLOCK_PER_FEATURE, self.debug))
-    
-    self.find_min_kernel = dfs_module.get_function("find_min_imp")
-    self.find_min_kernel.prepare("PPPi")
+    f = self.forest
+    self.find_min_kernel = f.find_min_kernel #module.get_function("find_min_imp")
   
-    self.fill_kernel = dfs_module.get_function("fill_table")
-    self.fill_kernel.prepare("PiiPi")
+    self.fill_kernel = f.fill_kernel #dfs_module.get_function("fill_table")
     
-    self.scan_reshuffle_tex = dfs_module.get_function("scan_reshuffle")
-    self.scan_reshuffle_tex.prepare("PPiii")
-    tex_ref = dfs_module.get_texref("tex_mark")
-    self.mark_table.bind_to_texref_ext(tex_ref) 
+    self.scan_reshuffle_tex = f.scan_reshuffle_tex #dfs_module.get_function("scan_reshuffle")
       
-    self.comput_total_2d = dfs_module.get_function("compute_2d")
-    self.comput_total_2d.prepare("PPPPPPPiii")
+    self.comput_total_2d = f.comput_total_2d #dfs_module.get_function("compute_2d")
 
-    self.reduce_2d = dfs_module.get_function("reduce_2d")
-    self.reduce_2d.prepare("PPPPPi")
+    self.reduce_2d = f.reduce_2d #dfs_module.get_function("reduce_2d")
     
-    self.comput_total_kernel = dfs_module.get_function("compute_gini_small")
-    self.comput_total_kernel.prepare("PPPPPPPPii")
+    self.comput_total_kernel = f.comput_total_kernel #dfs_module.get_function("compute_gini_small")
     
-    self.scan_total_kernel = dfs_module.get_function("scan_gini_small")
-    self.scan_total_kernel.prepare("PPPi")
+    self.scan_total_kernel = f.scan_total_kernel #dfs_module.get_function("scan_gini_small")
     
-    self.scan_total_2d = dfs_module.get_function("scan_gini_large")
-    self.scan_total_2d.prepare("PPPPiii")
+    self.scan_total_2d = f.scan_total_2d #dfs_module.get_function("scan_gini_large")
     
-    self.scan_reduce = dfs_module.get_function("scan_reduce")
-    self.scan_reduce.prepare("Pi")
+    self.scan_reduce = f.scan_reduce #dfs_module.get_function("scan_reduce")
 
     """ BFS module """
-    bfs_module = compile_module("bfs_module.cu", (self.BFS_THREADS, n_labels, ctype_samples,
-      ctype_labels, ctype_counts, ctype_indices,  self.debug))
+    self.scan_total_bfs = f.scan_total_bfs #bfs_module.get_function("scan_bfs")
 
-    self.scan_total_bfs = bfs_module.get_function("scan_bfs")
-    self.scan_total_bfs.prepare("PPPPPP")
+    self.comput_bfs_2d = f.comput_bfs_2d #bfs_module.get_function("compute_2d")
 
-    self.comput_bfs_2d = bfs_module.get_function("compute_2d")
-    self.comput_bfs_2d.prepare("PPPPPPPPPPPiii")
+    self.fill_bfs = f.fill_bfs #bfs_module.get_function("fill_table")
 
-    self.fill_bfs = bfs_module.get_function("fill_table")
-    self.fill_bfs.prepare("PPPPPPPi")
+    self.reshuffle_bfs = f.reshuffle_bfs #bfs_module.get_function("scan_reshuffle")
 
-    self.reshuffle_bfs = bfs_module.get_function("scan_reshuffle")
-    tex_ref = bfs_module.get_texref("tex_mark")
-    self.mark_table.bind_to_texref_ext(tex_ref) 
-    self.reshuffle_bfs.prepare("PPPPPii") 
-
-    self.reduce_bfs_2d = bfs_module.get_function("reduce")
-    self.reduce_bfs_2d.prepare("PPPPPPi")
+    self.reduce_bfs_2d = f.reduce_bfs_2d #bfs_module.get_function("reduce")
     
-    self.get_thresholds = bfs_module.get_function("get_thresholds")
-    self.get_thresholds.prepare("PPPPPPPi")
-   
-    self.predict_kernel = mk_kernel(
-        params = (ctype_indices, ctype_samples, ctype_labels), 
-        func_name = "predict", 
-        kernel_file = "predict.cu", 
-        prepare_args = "PPPPPPPii")
-
+    self.get_thresholds = f.get_thresholds #bfs_module.get_function("get_thresholds")
+    
+    """ Other """
+    self.predict_kernel = f.predict_kernel 
+    self.mark_table = f.mark_table
 
   def __allocate_gpuarrays(self):
     if self.max_features < 4:
@@ -224,7 +190,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.impurity_left = gpuarray.empty(imp_size, dtype = np.float32)
     self.impurity_right = gpuarray.empty(self.max_features, dtype = np.float32)
     self.min_split = gpuarray.empty(self.max_features, dtype = self.dtype_counts)
-    self.mark_table = gpuarray.empty(self.stride, dtype = np.uint8)
     self.label_total = gpuarray.empty(self.n_labels, self.dtype_indices)  
     self.label_total_2d = gpuarray.zeros(self.max_features * (self.MAX_BLOCK_PER_FEATURE + 1) * self.n_labels, self.dtype_indices)
     self.impurity_2d = gpuarray.empty(self.max_features * self.MAX_BLOCK_PER_FEATURE * 2, np.float32)
@@ -236,7 +201,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.impurity_left = None
     self.impurity_right = None
     self.min_split = None
-    self.mark_table = None
     self.label_total = None
     self.sorted_indices_gpu = None
     self.sorted_indices_gpu_ = None

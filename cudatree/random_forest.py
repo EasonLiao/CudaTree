@@ -1,6 +1,6 @@
 import numpy as np
 from cuda_random_decisiontree_small import RandomDecisionTreeSmall
-from util import timer, get_best_dtype, dtype_to_ctype, mk_kernel, mk_tex_kernel
+from util import timer, get_best_dtype, dtype_to_ctype, mk_kernel, mk_tex_kernel, compile_module
 from pycuda import gpuarray
 from util import start_timer, end_timer, show_timings
 from parakeet import jit
@@ -23,6 +23,9 @@ class RandomForestClassifier(object):
   """ 
   COMPT_THREADS_PER_BLOCK = 128
   RESHUFFLE_THREADS_PER_BLOCK = 256
+  BFS_THREADS = 64
+  MAX_BLOCK_PER_FEATURE = 50
+  MAX_BLOCK_BFS = 5000
   
   def __init__(self, n_estimators = 10, max_features = None, min_samples_split = 1, bootstrap = True, verbose = False, debug = False):
     """Construce multiple trees in the forest.
@@ -83,7 +86,6 @@ class RandomForestClassifier(object):
     
     self.bootstrap_fill.prepare("PPii")
     self.bootstrap_reshuffle.prepare("PPPi")
-    self.mark_table = gpuarray.empty(self.stride, np.uint8) 
     self.mark_table.bind_to_texref_ext(tex_ref)
 
   def __get_sorted_indices(self, sorted_indices):
@@ -177,13 +179,17 @@ class RandomForestClassifier(object):
     start_timer("argsort")
     sorted_indices = np.argsort(samples).astype(self.dtype_indices)
     self.sorted_indices_gpu = gpuarray.to_gpu(sorted_indices)
+    self.mark_table = gpuarray.empty(self.stride, np.uint8) 
     end_timer("argsort")
+     
+    self.__compile_kernels()
 
     if bfs_threshold is None:
       bfs_threshold = int(math.ceil(float(self.stride) / 40))
       if bfs_threshold < 50:
         bfs_threshold = 50
     
+
     if self.max_features is None:
       self.max_features = int(math.ceil(math.log(self.n_features, 2)))
     
@@ -201,7 +207,8 @@ class RandomForestClassifier(object):
     self.forest = [RandomDecisionTreeSmall(samples_gpu, labels_gpu, self.compt_table, 
       self.dtype_labels,self.dtype_samples, self.dtype_indices, self.dtype_counts,
       self.n_features, self.stride, self.n_labels, self.COMPT_THREADS_PER_BLOCK,
-      self.RESHUFFLE_THREADS_PER_BLOCK, self.max_features, self.min_samples_split, bfs_threshold, self.debug) for i in xrange(self.n_estimators)]   
+      self.RESHUFFLE_THREADS_PER_BLOCK, self.max_features, self.min_samples_split, bfs_threshold, self.debug, 
+      self) for i in xrange(self.n_estimators)]   
    
     for i, tree in enumerate(self.forest):
       start_timer("get sorted indices")
@@ -245,3 +252,80 @@ class RandomForestClassifier(object):
 
   def score(self, X, Y):
     return np.mean(self.predict(X) == Y)
+ 
+
+  def __compile_kernels(self):
+    print "compile"
+    ctype_indices = dtype_to_ctype(self.dtype_indices)
+    ctype_labels = dtype_to_ctype(self.dtype_labels)
+    ctype_counts = dtype_to_ctype(self.dtype_counts)
+    ctype_samples = dtype_to_ctype(self.dtype_samples)
+    n_labels = self.n_labels
+    n_threads = self.COMPT_THREADS_PER_BLOCK
+    n_shf_threads = self.RESHUFFLE_THREADS_PER_BLOCK
+    
+    """ DFS module """
+    dfs_module = compile_module("dfs_module.cu", (n_threads, n_shf_threads, n_labels, ctype_samples,
+      ctype_labels, ctype_counts, ctype_indices, self.MAX_BLOCK_PER_FEATURE, self.debug))
+    
+    self.find_min_kernel = dfs_module.get_function("find_min_imp")
+    self.find_min_kernel.prepare("PPPi")
+  
+    self.fill_kernel = dfs_module.get_function("fill_table")
+    self.fill_kernel.prepare("PiiPi")
+    
+    self.scan_reshuffle_tex = dfs_module.get_function("scan_reshuffle")
+    self.scan_reshuffle_tex.prepare("PPiii")
+    tex_ref = dfs_module.get_texref("tex_mark")
+    self.mark_table.bind_to_texref_ext(tex_ref) 
+      
+    self.comput_total_2d = dfs_module.get_function("compute_2d")
+    self.comput_total_2d.prepare("PPPPPPPiii")
+
+    self.reduce_2d = dfs_module.get_function("reduce_2d")
+    self.reduce_2d.prepare("PPPPPi")
+    
+    self.comput_total_kernel = dfs_module.get_function("compute_gini_small")
+    self.comput_total_kernel.prepare("PPPPPPPPii")
+    
+    self.scan_total_kernel = dfs_module.get_function("scan_gini_small")
+    self.scan_total_kernel.prepare("PPPi")
+    
+    self.scan_total_2d = dfs_module.get_function("scan_gini_large")
+    self.scan_total_2d.prepare("PPPPiii")
+    
+    self.scan_reduce = dfs_module.get_function("scan_reduce")
+    self.scan_reduce.prepare("Pi")
+
+    """ BFS module """
+    bfs_module = compile_module("bfs_module.cu", (self.BFS_THREADS, n_labels, ctype_samples,
+      ctype_labels, ctype_counts, ctype_indices,  self.debug))
+
+    self.scan_total_bfs = bfs_module.get_function("scan_bfs")
+    self.scan_total_bfs.prepare("PPPPPP")
+
+    self.comput_bfs_2d = bfs_module.get_function("compute_2d")
+    self.comput_bfs_2d.prepare("PPPPPPPPPPPiii")
+
+    self.fill_bfs = bfs_module.get_function("fill_table")
+    self.fill_bfs.prepare("PPPPPPPi")
+
+    self.reshuffle_bfs = bfs_module.get_function("scan_reshuffle")
+    tex_ref = bfs_module.get_texref("tex_mark")
+    self.mark_table.bind_to_texref_ext(tex_ref) 
+    self.reshuffle_bfs.prepare("PPPPPii") 
+
+    self.reduce_bfs_2d = bfs_module.get_function("reduce")
+    self.reduce_bfs_2d.prepare("PPPPPPi")
+    
+    self.get_thresholds = bfs_module.get_function("get_thresholds")
+    self.get_thresholds.prepare("PPPPPPPi")
+   
+    self.predict_kernel = mk_kernel(
+        params = (ctype_indices, ctype_samples, ctype_labels), 
+        func_name = "predict", 
+        kernel_file = "predict.cu", 
+        prepare_args = "PPPPPPPii")
+
+
+
