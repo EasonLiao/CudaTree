@@ -17,6 +17,18 @@ def sync():
     driver.Context.synchronize()
 
 @jit
+def  _shuffle(x, r):
+  for i in xrange(1, len(x)):
+    j = np.fmod(r[i], i)
+    old_xj = x[j]
+    x[j] = x[i]
+    x[i] = old_xj
+
+def shuffle(x):
+    r = np.random.randint(0, len(x), len(x))
+    _shuffle(x, r)
+
+@jit
 def decorate(target, si_0, si_1, values_idx_array, values_si_idx_array, values_array, n_nodes):
   for i in range(n_nodes):
     if values_si_idx_array[i] == 0:
@@ -95,6 +107,7 @@ def bfs_loop(queue_size, n_nodes, max_features, new_idx_array, idx_array, new_si
 class RandomDecisionTreeSmall(RandomBaseTree): 
   BFS_THREADS = 64
   MAX_BLOCK_PER_FEATURE = 50
+  MAX_BLOCK_BFS = 5000
 
   def __init__(self, samples_gpu, labels_gpu, compt_table, dtype_labels, dtype_samples, 
       dtype_indices, dtype_counts, n_features, stride, n_labels, n_threads, n_shf_threads, max_features = None,
@@ -126,9 +139,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
     return np.array(random.sample(xrange(self.n_features), self.max_features), dtype=self.dtype_indices)
   
-  def __shuffle_features(self):
+  def __shuffle_feature_indices(self):
     if self.debug == 0:
-      np.random.shuffle(self.features_array)
+      shuffle(self.features_array)
 
   def __compile_kernels(self):
     ctype_indices = dtype_to_ctype(self.dtype_indices)
@@ -227,6 +240,13 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.label_total = None
     self.sorted_indices_gpu = None
     self.sorted_indices_gpu_ = None
+    self.label_total_2d = None
+    self.min_split_2d = None
+    self.impurity_2d = None
+    self.feature_mask = None
+    self.features_array_gpu = None
+    
+    #Release kernels
     self.fill_kernel = None
     self.scan_reshuffle_tex = None 
     self.scan_total_kernel = None
@@ -236,11 +256,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.comput_bfs = None
     self.fill_bfs = None
     self.reshuffle_bfs = None
-    self.label_total_2d = None
-    self.min_split_2d = None
-    self.impurity_2d = None
-    self.feature_mask = None
-    self.features_array_gpu = None
+     
 
   def __allocate_numpyarrays(self):
     self.left_children = np.zeros(self.n_samples * 2, dtype = np.uint32)
@@ -272,6 +288,13 @@ class RandomDecisionTreeSmall(RandomBaseTree):
       self.__bfs()
   
   def __bfs(self):
+    block_per_split = int(math.ceil(float(self.MAX_BLOCK_BFS) / self.queue_size))
+    
+    if block_per_split > self.max_features:
+      n_blocks = self.max_features
+    else:
+      n_blocks = block_per_split
+
     start_timer("gpu allocate")
     idx_array_gpu = gpuarray.to_gpu(self.idx_array[0 : self.queue_size * 2])
     si_idx_array_gpu = gpuarray.to_gpu(self.si_idx_array[0 : self.queue_size])
@@ -283,16 +306,17 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.min_split = gpuarray.empty(self.queue_size, dtype = self.dtype_indices) 
     min_feature_idx_gpu = gpuarray.empty(self.queue_size, dtype = np.uint16)
     
-    impurity_gpu_2d = gpuarray.empty(self.queue_size * 2 * self.max_features, dtype = np.float32)
-    min_split_2d = gpuarray.empty(self.queue_size * self.max_features, dtype = self.dtype_indices) 
-    min_feature_idx_gpu_2d = gpuarray.empty(self.queue_size * self.max_features, dtype = np.uint16)
+    impurity_gpu_2d = gpuarray.empty(self.queue_size * 2 * n_blocks, dtype = np.float32)
+    min_split_2d = gpuarray.empty(self.queue_size * n_blocks, dtype = self.dtype_indices) 
+    min_feature_idx_gpu_2d = gpuarray.empty(self.queue_size * n_blocks, dtype = np.uint16)
     
     start_timer("bfs htod") 
     cuda.memcpy_htod(self.features_array_gpu.ptr, self.features_array) 
     end_timer("bfs htod")
     
     end_timer("gpu allocate")
-
+    
+    
     start_timer("gini bfs scan")
     self.scan_total_bfs.prepared_call(
             (self.queue_size, 1),
@@ -308,28 +332,27 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     end_timer("gini bfs scan")
       
     start_timer("gini bfs comput")  
-    """
-    self.comput_bfs.prepared_call(
-          (self.queue_size, 1),
-          (self.BFS_THREADS, 1, 1),
-          self.samples_gpu.ptr,
-          self.labels_gpu.ptr,
-          self.sorted_indices_gpu.ptr,
-          self.sorted_indices_gpu_.ptr,
-          idx_array_gpu.ptr,
-          si_idx_array_gpu.ptr,
-          self.label_total.ptr,
-          self.features_array_gpu.ptr,
-          impurity_gpu.ptr,
-          self.min_split.ptr,
-          min_feature_idx_gpu.ptr,
-          self.max_features,
-          self.n_features,
-          self.stride)
-    """
+    
+    #self.comput_bfs.prepared_call(
+    #      (self.queue_size, 1),
+    #      (self.BFS_THREADS, 1, 1),
+    #      self.samples_gpu.ptr,
+    #      self.labels_gpu.ptr,
+    #      self.sorted_indices_gpu.ptr,
+    #      self.sorted_indices_gpu_.ptr,
+    #      idx_array_gpu.ptr,
+    #      si_idx_array_gpu.ptr,
+    #      self.label_total.ptr,
+    #      self.features_array_gpu.ptr,
+    #      impurity_gpu.ptr,
+    #      self.min_split.ptr,
+    #      min_feature_idx_gpu.ptr,
+    #      self.max_features,
+    #      self.n_features,
+    #      self.stride)
 
     self.comput_bfs_2d.prepared_call(
-          (self.queue_size, self.max_features),
+          (self.queue_size, n_blocks),
           (self.BFS_THREADS, 1, 1),
           self.samples_gpu.ptr,
           self.labels_gpu.ptr,
@@ -355,8 +378,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           impurity_gpu.ptr,
           self.min_split.ptr,
           min_feature_idx_gpu.ptr,
-          self.max_features)
-      
+          n_blocks)
+    
     self.fill_bfs.prepared_call(
           (self.queue_size, 1),
           (self.BFS_THREADS, 1, 1),
@@ -372,14 +395,14 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     sync()
     end_timer("gini bfs comput")
 
-    block_per_split = int(math.ceil(float(5000) / self.queue_size))
     if block_per_split > self.n_features:
-      block_per_split = self.n_features
-    
-    
+      n_blocks = self.n_features
+    else:
+      n_blocks = block_per_split
+      
     start_timer("bfs reshuffle")
     self.reshuffle_bfs.prepared_call(
-          (self.queue_size, block_per_split),
+          (self.queue_size, n_blocks),
           (self.BFS_THREADS, 1, 1),
           si_idx_array_gpu.ptr,
           self.sorted_indices_gpu.ptr,
@@ -389,7 +412,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.n_features,
           self.stride) 
     
-    self.__shuffle_features()
+    self.__shuffle_feature_indices()
 
     self.get_thresholds.prepared_call(
           (self.queue_size, 1),
@@ -543,7 +566,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                 self.min_split.ptr,
                 self.max_features)
     
-    #self.min_imp_info is page locked memory, can transfer data asynchronously
     cuda.memcpy_dtoh(self.min_imp_info, self.impurity_left.ptr)
     sync()
     end_timer("gini small")
@@ -705,7 +727,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                       self.stride) 
     
     start_timer("feature reshuffle")
-    self.__shuffle_features()
+    self.__shuffle_feature_indices()
     end_timer("feature reshuffle")
    
     sync()

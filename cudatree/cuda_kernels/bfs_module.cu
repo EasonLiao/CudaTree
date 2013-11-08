@@ -79,7 +79,8 @@ __global__ void compute_2d(
   IDX_DATA_TYPE* p_sorted_indices;
   IDX_DATA_TYPE reg_start_idx;
   IDX_DATA_TYPE reg_stop_idx;
- 
+  uint16_t reg_feature_min_idx = 0;
+
   __shared__ float shared_count_total[MAX_NUM_LABELS];
   __shared__ float shared_label_count[MAX_NUM_LABELS];
   __shared__ LABEL_DATA_TYPE shared_labels[THREADS_PER_BLOCK];
@@ -105,51 +106,55 @@ __global__ void compute_2d(
     p_sorted_indices = sorted_indices_1;
   else
     p_sorted_indices = sorted_indices_2;
- 
-
-  uint16_t f = blockIdx.y;  
-  uint16_t feature_idx = subset_indices[f];
-  uint32_t offset = feature_idx * stride;
-
-  //Reset shared_label_count array.
-  for(uint16_t t = tidx; t < MAX_NUM_LABELS; t += blockDim.x)
-    shared_label_count[t] = 0.0;
   
-  __syncthreads();
+  uint16_t feature_idx;
+  uint32_t offset;
 
-  for(IDX_DATA_TYPE i = reg_start_idx; i < reg_stop_idx - 1; i += step){
-    IDX_DATA_TYPE idx = i + tidx;
+  for(uint16_t f = blockIdx.y; f < max_features; f += gridDim.y){
+    feature_idx = subset_indices[f];
+    offset = feature_idx * stride;
 
-    if(idx < reg_stop_idx){
-      shared_labels[tidx] = labels[p_sorted_indices[offset + idx]];
-      shared_samples[tidx] = samples[offset + p_sorted_indices[offset + idx]];
-    }
-
+    //Reset shared_label_count array.
+    for(uint16_t t = tidx; t < MAX_NUM_LABELS; t += blockDim.x)
+      shared_label_count[t] = 0.0;
+    
     __syncthreads();
 
-    if(tidx == 0){
-      IDX_DATA_TYPE stop_pos = (i + step < reg_stop_idx - 1)? step : reg_stop_idx - 1 - i;
-      
-      for(IDX_DATA_TYPE t = 0; t < stop_pos; ++t){
-        shared_label_count[shared_labels[t]]++;
-        if(shared_samples[t] == shared_samples[t + 1])
-          continue;
-        
-        IDX_DATA_TYPE n_left =  i + t - reg_start_idx + 1;
-        IDX_DATA_TYPE n_right = reg_stop_idx - reg_start_idx - n_left; 
+    for(IDX_DATA_TYPE i = reg_start_idx; i < reg_stop_idx - 1; i += step){
+      IDX_DATA_TYPE idx = i + tidx;
 
-        float left = calc_imp_left(shared_label_count, n_left) * n_left / (reg_stop_idx - reg_start_idx);
-        float right = calc_imp_right(shared_label_count, shared_count_total, n_right) * 
-          n_right / (reg_stop_idx - reg_start_idx);
+      if(idx < reg_stop_idx){
+        shared_labels[tidx] = labels[p_sorted_indices[offset + idx]];
+        shared_samples[tidx] = samples[offset + p_sorted_indices[offset + idx]];
+      }
+
+      __syncthreads();
+
+      if(tidx == 0){
+        IDX_DATA_TYPE stop_pos = (i + step < reg_stop_idx - 1)? step : reg_stop_idx - 1 - i;
         
-        if(left + right < reg_min_left + reg_min_right){
-          reg_min_left = left;
-          reg_min_right = right;
-          reg_min_split = i + t;
-        }
-      }  
+        for(IDX_DATA_TYPE t = 0; t < stop_pos; ++t){
+          shared_label_count[shared_labels[t]]++;
+          if(shared_samples[t] == shared_samples[t + 1])
+            continue;
+          
+          IDX_DATA_TYPE n_left =  i + t - reg_start_idx + 1;
+          IDX_DATA_TYPE n_right = reg_stop_idx - reg_start_idx - n_left; 
+
+          float left = calc_imp_left(shared_label_count, n_left) * n_left / (reg_stop_idx - reg_start_idx);
+          float right = calc_imp_right(shared_label_count, shared_count_total, n_right) * 
+            n_right / (reg_stop_idx - reg_start_idx);
+          
+          if(left + right < reg_min_left + reg_min_right){
+            reg_min_left = left;
+            reg_min_right = right;
+            reg_min_split = i + t;
+            reg_feature_min_idx = feature_idx;
+          }
+        }  
+      }
+      __syncthreads();
     }
-    __syncthreads();
   }
 
   if(tidx == 0){
@@ -157,7 +162,7 @@ __global__ void compute_2d(
     imp_min[offset * 2] = reg_min_left;
     imp_min[offset * 2 + 1] = reg_min_right;
     split[offset] = reg_min_split;
-    min_feature_idx[offset] = feature_idx;
+    min_feature_idx[offset] = reg_feature_min_idx;
   }
 }
 
@@ -168,15 +173,15 @@ __global__ void reduce(float *imp_min_2d,
                         float *imp_min,
                         IDX_DATA_TYPE *split,
                         uint16_t *min_feature,
-                        int max_features){
+                        int nblocks){
   
-  uint16_t offset = blockIdx.x * max_features;
+  uint16_t offset = blockIdx.x * nblocks;
   IDX_DATA_TYPE reg_min_split;
   float reg_min_left = 4.0;
   float reg_min_right = 4.0;
   uint16_t reg_min_fidx = 0;
   
-  for(int i = 0; i < max_features; ++i){
+  for(int i = 0; i < nblocks; ++i){
     float left = imp_min_2d[2 * (offset + i)];
     float right = imp_min_2d[2 * (offset + i) + 1];
     if(reg_min_left + reg_min_right > left + right){
