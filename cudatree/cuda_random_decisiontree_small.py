@@ -157,9 +157,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
     self.reduce_2d = f.reduce_2d #dfs_module.get_function("reduce_2d")
     
-    self.comput_total_kernel = f.comput_total_kernel #dfs_module.get_function("compute_gini_small")
+    #self.comput_total_kernel = f.comput_total_kernel #dfs_module.get_function("compute_gini_small")
     
-    self.scan_total_kernel = f.scan_total_kernel #dfs_module.get_function("scan_gini_small")
+    #self.scan_total_kernel = f.scan_total_kernel #dfs_module.get_function("scan_gini_small")
     
     self.scan_total_2d = f.scan_total_2d #dfs_module.get_function("scan_gini_large")
     
@@ -220,7 +220,12 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.comput_bfs = None
     self.fill_bfs = None
     self.reshuffle_bfs = None
-     
+    self.reduce_bfs_2d = None
+    self.comput_bfs_2d = None
+    #self.predict_kernel = None
+    self.get_thresholds = None
+    self.scan_reduce = None
+    self.mark_table = None
 
   def __allocate_numpyarrays(self):
     self.left_children = np.zeros(self.n_samples * 2, dtype = np.uint32)
@@ -235,8 +240,12 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.threshold_value_idx = np.zeros(2, self.dtype_indices)
     self.min_imp_info = driver.pagelocked_zeros(4, dtype = np.float32)  
     self.features_array = driver.pagelocked_zeros(self.n_features, dtype = np.uint16)
+    
+    start_timer("init feature reshuffle")
     for i in range(self.n_features):
       self.features_array[i] = i
+    end_timer("init feature reshuffle")
+    
 
   def __release_numpyarrays(self):
     self.features_array = None
@@ -245,7 +254,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.si_idx_array = None
     self.threshold_value_idx = None
     self.min_imp_info = None
-
+    self.samples = None
+    self.target = None
 
   def __bfs_construct(self):
     while self.queue_size > 0:
@@ -483,10 +493,10 @@ class RandomDecisionTreeSmall(RandomBaseTree):
 
     self.values_idx_array = None
     self.values_si_idx_array = None
-    self.left_children = self.left_children[0 : self.n_nodes]
-    self.right_children = self.right_children[0 : self.n_nodes]
-    self.feature_threshold_array = self.feature_threshold_array[0 : self.n_nodes]
-    self.feature_idx_array = self.feature_idx_array[0 : self.n_nodes]
+    self.left_children.resize(self.n_nodes, refcheck = False) #= #self.left_children[0 : self.n_nodes]
+    self.right_children.resize(self.n_nodes, refcheck = False) #= #self.right_children[0 : self.n_nodes]
+    self.feature_threshold_array.resize(self.n_nodes, refcheck = False) #= #self.feature_threshold_array[0 : self.n_nodes]
+    self.feature_idx_array.resize(self.n_nodes, refcheck = False) #= self.feature_idx_array[0 : self.n_nodes]
 
   def turn_to_leaf(self, nid, start_idx, n_samples, idx):
     """ Pick the indices to record on the leaf node. We'll choose the most common label """ 

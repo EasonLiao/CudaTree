@@ -285,11 +285,11 @@ class RandomForestClassifier(object):
     self.reduce_2d = dfs_module.get_function("reduce_2d")
     self.reduce_2d.prepare("PPPPPi")
     
-    self.comput_total_kernel = dfs_module.get_function("compute_gini_small")
-    self.comput_total_kernel.prepare("PPPPPPPPii")
+    #self.comput_total_kernel = dfs_module.get_function("compute_gini_small")
+    #self.comput_total_kernel.prepare("PPPPPPPPii")
     
-    self.scan_total_kernel = dfs_module.get_function("scan_gini_small")
-    self.scan_total_kernel.prepare("PPPi")
+    #self.scan_total_kernel = dfs_module.get_function("scan_gini_small")
+    #self.scan_total_kernel.prepare("PPPi")
     
     self.scan_total_2d = dfs_module.get_function("scan_gini_large")
     self.scan_total_2d.prepare("PPPPiii")

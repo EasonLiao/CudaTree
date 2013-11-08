@@ -462,7 +462,7 @@ __global__ void reduce_2d(
   }
 }
 
-
+/*
 __global__ void compute_gini_small(IDX_DATA_TYPE *sorted_indices,
                         SAMPLE_DATA_TYPE *samples, 
                         LABEL_DATA_TYPE *labels,
@@ -567,3 +567,4 @@ __global__ void scan_gini_small(
   for(uint16_t i =  threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x)
     label_total[i] = shared_count[i];
 }
+*/
