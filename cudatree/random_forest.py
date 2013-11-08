@@ -255,7 +255,6 @@ class RandomForestClassifier(object):
  
 
   def __compile_kernels(self):
-    print "compile"
     ctype_indices = dtype_to_ctype(self.dtype_indices)
     ctype_labels = dtype_to_ctype(self.dtype_labels)
     ctype_counts = dtype_to_ctype(self.dtype_counts)

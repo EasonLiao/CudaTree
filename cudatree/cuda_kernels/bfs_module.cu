@@ -109,11 +109,27 @@ __global__ void compute_2d(
   
   uint16_t feature_idx;
   uint32_t offset;
+  
+  //Number of features thie block needs to check
+  uint16_t n_tasks = n_features / gridDim.y;
 
-  for(uint16_t f = blockIdx.y; f < max_features; f += gridDim.y){
+  if(blockIdx.y < n_features %% gridDim.y)
+    n_tasks++;
+  
+  //number of features this block has already checked
+  uint16_t n_tasks_finished = 0;
+
+  for(uint16_t f = blockIdx.y; f < n_features; f += gridDim.y){
     feature_idx = subset_indices[f];
     offset = feature_idx * stride;
+    
+    if(n_tasks_finished == n_tasks)
+      break;
 
+    if(samples[offset + p_sorted_indices[offset + reg_start_idx]] == 
+        samples[offset + p_sorted_indices[offset + reg_stop_idx - 1]])
+      continue;
+  
     //Reset shared_label_count array.
     for(uint16_t t = tidx; t < MAX_NUM_LABELS; t += blockDim.x)
       shared_label_count[t] = 0.0;
@@ -155,6 +171,8 @@ __global__ void compute_2d(
       }
       __syncthreads();
     }
+
+    n_tasks_finished++;
   }
 
   if(tidx == 0){

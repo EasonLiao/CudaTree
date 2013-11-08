@@ -289,8 +289,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     end_timer("bfs htod")
     
     end_timer("gpu allocate")
-    
-    
+      
     start_timer("gini bfs scan")
     self.scan_total_bfs.prepared_call(
             (self.queue_size, 1),
@@ -578,8 +577,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           (self.max_features, 1),
           (32, 1, 1),
           self.label_total_2d.ptr,
-          n_block) 
-    
+          n_block)  
     sync()
     end_timer("gini dfs scan")
     
