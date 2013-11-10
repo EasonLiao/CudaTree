@@ -3,12 +3,12 @@ import numpy as np
 from pycuda.compiler import SourceModule
 from os import path
 import operator
+import os
 
 _kernel_cache = {}
-
 _module_cache = {}
 
-kernels_dir = path.dirname(__file__) + "/cuda_kernels/"
+kernels_dir = path.dirname(os.path.realpath(__file__)) + "/cuda_kernels/"
 
 def compile_module(module_file, params):
   module_file = kernels_dir + module_file

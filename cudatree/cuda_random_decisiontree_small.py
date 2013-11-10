@@ -105,10 +105,6 @@ def bfs_loop(queue_size, n_nodes, max_features, new_idx_array, idx_array, new_si
 
 
 class RandomDecisionTreeSmall(RandomBaseTree): 
-  BFS_THREADS = 64
-  MAX_BLOCK_PER_FEATURE = 50
-  MAX_BLOCK_BFS = 5000
-
   def __init__(self, samples_gpu, labels_gpu, compt_table, dtype_labels, dtype_samples, 
       dtype_indices, dtype_counts, n_features, stride, n_labels, n_threads, n_shf_threads, max_features = None,
       min_samples_split = None, bfs_threshold = 64, debug = False, forest = None):
@@ -129,6 +125,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.min_samples_split =  min_samples_split
     self.bfs_threshold = bfs_threshold
     self.forest = forest
+    self.BFS_THREADS = self.forest.BFS_THREADS
+    self.MAX_BLOCK_PER_FEATURE = self.forest.MAX_BLOCK_PER_FEATURE
+    self.MAX_BLOCK_BFS = self.forest.MAX_BLOCK_BFS
     if debug == False:
       self.debug = 0
     else:
@@ -241,10 +240,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.min_imp_info = driver.pagelocked_zeros(4, dtype = np.float32)  
     self.features_array = driver.pagelocked_zeros(self.n_features, dtype = np.uint16)
     
-    start_timer("init feature reshuffle")
     for i in range(self.n_features):
       self.features_array[i] = i
-    end_timer("init feature reshuffle")
     
 
   def __release_numpyarrays(self):
@@ -303,9 +300,9 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     
     sync()
     end_timer("gini bfs scan")
-      
-    start_timer("gini bfs comput")  
     
+
+    start_timer("gini bfs comput")   
     #self.comput_bfs.prepared_call(
     #      (self.queue_size, 1),
     #      (self.BFS_THREADS, 1, 1),
@@ -337,10 +334,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.features_array_gpu.ptr,
           impurity_gpu_2d.ptr,
           min_split_2d.ptr,
-          min_feature_idx_gpu_2d.ptr,
-          self.max_features,
-          self.n_features,
-          self.stride)
+          min_feature_idx_gpu_2d.ptr)
     
     self.reduce_bfs_2d.prepared_call(
           (self.queue_size, 1),
@@ -362,8 +356,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           min_feature_idx_gpu.ptr,
           idx_array_gpu.ptr,
           self.min_split.ptr,
-          self.mark_table.ptr,
-          self.stride)
+          self.mark_table.ptr)
 
     sync()
     end_timer("gini bfs comput")
@@ -381,9 +374,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.sorted_indices_gpu.ptr,
           self.sorted_indices_gpu_.ptr,
           idx_array_gpu.ptr,
-          self.min_split.ptr,
-          self.n_features,
-          self.stride) 
+          self.min_split.ptr)
     
     self.__shuffle_feature_indices()
 
@@ -396,9 +387,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.samples_gpu.ptr,
           threshold_value.ptr,
           min_feature_idx_gpu.ptr,
-          self.min_split.ptr,
-          self.stride)
-    
+          self.min_split.ptr) 
     sync()
     end_timer("bfs reshuffle")
     
@@ -570,9 +559,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
           self.label_total_2d.ptr,
           self.features_array_gpu.ptr,
           n_range,
-          n_samples,
-          self.stride)
-     
+          n_samples)
+
     self.scan_reduce.prepared_call(
           (self.max_features, 1),
           (32, 1, 1),
@@ -593,9 +581,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
          self.min_split_2d.ptr,
          self.features_array_gpu.ptr,
          n_range,
-         n_samples,
-         self.stride)
-    
+         n_samples)
+
     self.reduce_2d.prepared_call(
          (self.max_features, 1),
          (32, 1, 1),
@@ -680,8 +667,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                       si_gpu_in.ptr + row * self.stride * self.dtype_indices.itemsize + indices_offset, 
                       n_samples, 
                       col, 
-                      self.mark_table.ptr, 
-                      self.stride)
+                      self.mark_table.ptr) 
     sync()
     end_timer("dfs fill kernel")
 
@@ -695,9 +681,8 @@ class RandomDecisionTreeSmall(RandomBaseTree):
                       si_gpu_in.ptr + indices_offset,
                       si_gpu_out.ptr + indices_offset,
                       n_samples,
-                      col,
-                      self.stride) 
-    
+                      col)
+
     start_timer("feature reshuffle")
     self.__shuffle_feature_indices()
     end_timer("feature reshuffle")

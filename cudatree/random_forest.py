@@ -2,9 +2,11 @@ import numpy as np
 from cuda_random_decisiontree_small import RandomDecisionTreeSmall
 from util import timer, get_best_dtype, dtype_to_ctype, mk_kernel, mk_tex_kernel, compile_module
 from pycuda import gpuarray
+from pycuda import driver
 from util import start_timer, end_timer, show_timings
 from parakeet import jit
 import math
+import sys
 
 @jit
 def convert_result(tran_table, res):
@@ -25,7 +27,7 @@ class RandomForestClassifier(object):
   RESHUFFLE_THREADS_PER_BLOCK = 256
   BFS_THREADS = 64
   MAX_BLOCK_PER_FEATURE = 50
-  MAX_BLOCK_BFS = 5000
+  MAX_BLOCK_BFS = 10000
   
   def __init__(self, n_estimators = 10, max_features = None, min_samples_split = 1, bootstrap = True, verbose = False, debug = False):
     """Construce multiple trees in the forest.
@@ -267,19 +269,22 @@ class RandomForestClassifier(object):
     dfs_module = compile_module("dfs_module.cu", (n_threads, n_shf_threads, n_labels, ctype_samples,
       ctype_labels, ctype_counts, ctype_indices, self.MAX_BLOCK_PER_FEATURE, self.debug))
     
+    const_stride = dfs_module.get_global("stride")[0]
+    driver.memcpy_htod(const_stride, np.uint32(self.stride))
+
     self.find_min_kernel = dfs_module.get_function("find_min_imp")
     self.find_min_kernel.prepare("PPPi")
   
     self.fill_kernel = dfs_module.get_function("fill_table")
-    self.fill_kernel.prepare("PiiPi")
+    self.fill_kernel.prepare("PiiP")
     
     self.scan_reshuffle_tex = dfs_module.get_function("scan_reshuffle")
-    self.scan_reshuffle_tex.prepare("PPiii")
+    self.scan_reshuffle_tex.prepare("PPii")
     tex_ref = dfs_module.get_texref("tex_mark")
     self.mark_table.bind_to_texref_ext(tex_ref) 
       
     self.comput_total_2d = dfs_module.get_function("compute_2d")
-    self.comput_total_2d.prepare("PPPPPPPiii")
+    self.comput_total_2d.prepare("PPPPPPPii")
 
     self.reduce_2d = dfs_module.get_function("reduce_2d")
     self.reduce_2d.prepare("PPPPPi")
@@ -291,7 +296,7 @@ class RandomForestClassifier(object):
     #self.scan_total_kernel.prepare("PPPi")
     
     self.scan_total_2d = dfs_module.get_function("scan_gini_large")
-    self.scan_total_2d.prepare("PPPPiii")
+    self.scan_total_2d.prepare("PPPPii")
     
     self.scan_reduce = dfs_module.get_function("scan_reduce")
     self.scan_reduce.prepare("Pi")
@@ -300,25 +305,34 @@ class RandomForestClassifier(object):
     bfs_module = compile_module("bfs_module.cu", (self.BFS_THREADS, n_labels, ctype_samples,
       ctype_labels, ctype_counts, ctype_indices,  self.debug))
 
+    const_stride = bfs_module.get_global("stride")[0]
+    const_n_features = bfs_module.get_global("n_features")[0]
+    const_max_features = bfs_module.get_global("max_features")[0]
+    driver.memcpy_htod(const_stride, np.uint32(self.stride))
+    driver.memcpy_htod(const_n_features, np.uint16(self.n_features))
+    driver.memcpy_htod(const_max_features, np.uint16(self.max_features))
+    #sys.exit(0)
+
+
     self.scan_total_bfs = bfs_module.get_function("scan_bfs")
     self.scan_total_bfs.prepare("PPPPPP")
 
     self.comput_bfs_2d = bfs_module.get_function("compute_2d")
-    self.comput_bfs_2d.prepare("PPPPPPPPPPPiii")
+    self.comput_bfs_2d.prepare("PPPPPPPPPPP")
 
     self.fill_bfs = bfs_module.get_function("fill_table")
-    self.fill_bfs.prepare("PPPPPPPi")
+    self.fill_bfs.prepare("PPPPPPP")
 
     self.reshuffle_bfs = bfs_module.get_function("scan_reshuffle")
     tex_ref = bfs_module.get_texref("tex_mark")
     self.mark_table.bind_to_texref_ext(tex_ref) 
-    self.reshuffle_bfs.prepare("PPPPPii") 
+    self.reshuffle_bfs.prepare("PPPPP") 
 
     self.reduce_bfs_2d = bfs_module.get_function("reduce")
     self.reduce_bfs_2d.prepare("PPPPPPi")
     
     self.get_thresholds = bfs_module.get_function("get_thresholds")
-    self.get_thresholds.prepare("PPPPPPPi")
+    self.get_thresholds.prepare("PPPPPPP")
    
     self.predict_kernel = mk_kernel(
         params = (ctype_indices, ctype_samples, ctype_labels), 
@@ -326,5 +340,5 @@ class RandomForestClassifier(object):
         kernel_file = "predict.cu", 
         prepare_args = "PPPPPPPii")
 
-
+    
 

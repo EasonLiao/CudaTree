@@ -17,7 +17,9 @@
 
 #define WARP_SIZE 32
 #define WARP_MASK 0x1f
+
 texture<char, 1> tex_mark;
+__device__ __constant__ uint32_t stride;
 
 __global__ void scan_gini_large(
                         IDX_DATA_TYPE *sorted_indices,
@@ -25,8 +27,8 @@ __global__ void scan_gini_large(
                         COUNT_DATA_TYPE *label_total_2d,
                         uint16_t *subset_indices,
                         int n_range,
-                        int n_samples,
-                        int stride
+                        int n_samples
+                        //int stride
                         ){
    
   /* 
@@ -208,8 +210,8 @@ __global__ void find_min_imp(
 __global__ void fill_table(IDX_DATA_TYPE *sorted_indices,
                           int n_samples,
                           int split_idx,
-                          uint8_t *mark_table,
-                          int stride
+                          uint8_t *mark_table
+                          //int stride
                           ){
     for(int i = threadIdx.x; i < n_samples; i += blockDim.x)
       if(i <= split_idx)
@@ -223,8 +225,8 @@ __global__ void scan_reshuffle(
                           IDX_DATA_TYPE* sorted_indices,
                           IDX_DATA_TYPE* sorted_indices_out,
                           int n_samples,
-                          int split_idx,
-                          int stride
+                          int split_idx
+                          //int stride
                           ){  
   uint32_t indices_offset = blockIdx.x * stride;
   IDX_DATA_TYPE reg_pos = 0;
@@ -313,8 +315,9 @@ __global__ void compute_2d(IDX_DATA_TYPE *sorted_indices,
                         COUNT_DATA_TYPE *split, 
                         uint16_t *subset_indices,
                         int n_range,
-                        int n_samples, 
-                        int stride){
+                        int n_samples 
+                        //int stride
+                        ){
   /* 
     Compute and find minimum gini score for each range of each random generated feature.
     Inputs: 
@@ -331,12 +334,9 @@ __global__ void compute_2d(IDX_DATA_TYPE *sorted_indices,
       - impurity_2d : the minimum impurity score for each range of each feature.
       - split : the split index which produces the minimum gini score.
   */ 
-  uint16_t tidx = threadIdx.x; 
-  uint16_t bidx = blockIdx.x;
-  uint16_t bidy = blockIdx.y;
   uint16_t step = blockDim.x - 1;
 
-  uint32_t offset = subset_indices[bidx] * stride;
+  uint32_t offset = subset_indices[blockIdx.x] * stride;
   float reg_imp_right = 2.0;
   float reg_imp_left = 2.0;
   COUNT_DATA_TYPE reg_min_split = 0;
@@ -346,28 +346,28 @@ __global__ void compute_2d(IDX_DATA_TYPE *sorted_indices,
   __shared__ float shared_count_total[MAX_NUM_LABELS];
   __shared__ SAMPLE_DATA_TYPE shared_samples[THREADS_PER_BLOCK];
   
-  uint32_t cur_offset = bidx * (MAX_BLOCK_PER_FEATURE + 1) * MAX_NUM_LABELS + bidy * MAX_NUM_LABELS;
+  uint32_t cur_offset = blockIdx.x * (MAX_BLOCK_PER_FEATURE + 1) * MAX_NUM_LABELS + blockIdx.y * MAX_NUM_LABELS;
   uint32_t last_offset = int(ceil(float(n_samples) / n_range)) * MAX_NUM_LABELS;
 
-  for(uint16_t i = tidx; i < MAX_NUM_LABELS; i += blockDim.x){   
+  for(uint16_t i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x){   
       shared_count[i] = label_total_2d[cur_offset + i];
       shared_count_total[i] = label_total_2d[last_offset + i];
   }
   
-  IDX_DATA_TYPE stop_pos = ((bidy + 1) * n_range  < n_samples - 1)? (bidy + 1) * n_range : n_samples - 1;
+  IDX_DATA_TYPE stop_pos = ((blockIdx.y + 1) * n_range  < n_samples - 1)? (blockIdx.y + 1) * n_range : n_samples - 1;
 
-  for(IDX_DATA_TYPE i = bidy * n_range; i < stop_pos; i += step){ 
-    IDX_DATA_TYPE index = i + tidx;
+  for(IDX_DATA_TYPE i = blockIdx.y * n_range; i < stop_pos; i += step){ 
+    IDX_DATA_TYPE index = i + threadIdx.x;
     IDX_DATA_TYPE idx;
 
     if(index < stop_pos + 1){
       idx = sorted_indices[offset + index];
-      shared_labels[tidx] = labels[idx]; 
-      shared_samples[tidx] = samples[offset + idx];
+      shared_labels[threadIdx.x] = labels[idx]; 
+      shared_samples[threadIdx.x] = samples[offset + idx];
     }
     __syncthreads();
      
-    if(tidx == 0){
+    if(threadIdx.x == 0){
       IDX_DATA_TYPE end_pos = (i + step < stop_pos)? step : stop_pos - i;
       
         for(IDX_DATA_TYPE t = 0; t < end_pos; ++t){
@@ -380,13 +380,33 @@ __global__ void compute_2d(IDX_DATA_TYPE *sorted_indices,
           if(shared_samples[t] == shared_samples[t + 1])
             continue;
           
-          float imp_left = calc_imp_left(shared_count, i + 1 + t) * (i + t + 1) / n_samples;
-          float imp_right = calc_imp_right(shared_count, shared_count_total, n_samples - i - 1 - t) *
-            (n_samples - i - 1 - t) / n_samples;
+          /*
+          float imp_left, imp_right;
+          imp_left  = calc_imp_left(shared_count, i + 1 + t) * (i + t + 1) / n_samples;
+          imp_right  = calc_imp_right(shared_count, shared_count_total, n_samples - i - 1 - t) *
+          (n_samples - i - 1 - t) / n_samples;
+          calc_impurity(shared_count, shared_count_total, &imp_left, &imp_right, i + 1 + t, n_samples - i - 1 -t); 
+          */          
+          float imp_left = 0;
+          float imp_right = 0;
           
+          for(LABEL_DATA_TYPE r = 0; r < MAX_NUM_LABELS; ++r){
+            float left_count = shared_count[r];
+            imp_left += left_count * left_count;
+            float right_count = shared_count_total[r] - left_count;
+            imp_right += right_count * right_count; 
+          }
+          
+          float n_left = i + 1 + t;
+          float n_right = n_samples - n_left;
+          //imp_left = n_left / n_samples - imp_left / (n_samples * n_left);
+          //imp_right = (n_samples - n_left) / n_samples - imp_right / (n_samples * (n_samples - n_left));
+          imp_left = (1 - imp_left / (n_left * n_left)) * (n_left / n_samples);
+          imp_right = (1 - imp_right / (n_right * n_right)) * (n_right / n_samples);
+
           #if DEBUG == 1
-          assert(imp_left >= 0.0 && imp_left <= 1.0);
-          assert(imp_right >= 0.0 && imp_right <= 1.0);
+          assert(imp_left >= -0.001 && imp_left <= 1.0);
+          assert(imp_right >= -0.001 && imp_right <= 1.0);
           #endif
 
           if(imp_left + imp_right < reg_imp_right + reg_imp_left){
@@ -403,10 +423,10 @@ __global__ void compute_2d(IDX_DATA_TYPE *sorted_indices,
     __syncthreads();
   }
     
-  if(tidx == 0){
-    impurity_2d[bidx * MAX_BLOCK_PER_FEATURE * 2 + 2 * bidy] = reg_imp_left;
-    impurity_2d[bidx * MAX_BLOCK_PER_FEATURE * 2 + 2 * bidy + 1] = reg_imp_right;
-    split[bidx * MAX_BLOCK_PER_FEATURE + bidy] = reg_min_split;
+  if(threadIdx.x == 0){
+    impurity_2d[blockIdx.x * MAX_BLOCK_PER_FEATURE * 2 + 2 * blockIdx.y] = reg_imp_left;
+    impurity_2d[blockIdx.x * MAX_BLOCK_PER_FEATURE * 2 + 2 * blockIdx.y + 1] = reg_imp_right;
+    split[blockIdx.x * MAX_BLOCK_PER_FEATURE + blockIdx.y] = reg_min_split;
     #if DEBUG == 1
     assert(reg_imp_left == 2.0 || (reg_imp_left >= 0.0 && reg_imp_left <= 1.0));
     assert(reg_imp_right == 2.0 || (reg_imp_right >= 0.0 && reg_imp_right <= 1.0));
