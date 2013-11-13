@@ -316,7 +316,6 @@ __global__ void compute_2d(IDX_DATA_TYPE *sorted_indices,
                         uint16_t *subset_indices,
                         int n_range,
                         int n_samples 
-                        //int stride
                         ){
   /* 
     Compute and find minimum gini score for each range of each random generated feature.
@@ -401,42 +400,11 @@ __global__ void compute_2d(IDX_DATA_TYPE *sorted_indices,
           if(shared_samples[t] + DIFF_THRESHOLD >= shared_samples[t + 1] )
             continue;
         
-          /*
-          float imp_left, imp_right;
-          imp_left  = calc_imp_left(shared_count, i + 1 + t) * (i + t + 1) / n_samples;
-          imp_right  = calc_imp_right(shared_count, shared_count_total, n_samples - i - 1 - t) *
-          (n_samples - i - 1 - t) / n_samples;
-          calc_impurity(shared_count, shared_count_total, &imp_left, &imp_right, i + 1 + t, n_samples - i - 1 -t); 
-          */           
-          /*
-          int64_t left_sum = 0;
-          int64_t right_sum = 0;
-          
-          for(LABEL_DATA_TYPE r = 0; r < MAX_NUM_LABELS; ++r){
-            int64_t left_count = shared_count[r];
-            left_sum += left_count * left_count;
-            int64_t right_count = shared_count_total[r] - left_count;
-            right_sum += right_count * right_count;   
-          }
-          
-          imp_left = left_sum;
-          imp_right = right_sum;
 
-          if(right_sum != right_sqr_sum)
-            printf("oops! %%llu %%llu\n", right_sum, right_sqr_sum);
-          */
-
-          //imp_left = n_left / n_samples - imp_left / (n_samples * n_left);
-          //imp_right = (n_samples - n_left) / n_samples - imp_right / (n_samples * (n_samples - n_left));
-          /* 
-          if(left_sqr_sum > 1680000000){
-            printf("%%lld %%lld\n", left_sqr_sum - (int64_t)((float)left_sqr_sum), left_sqr_sum);
-          }
-          */
           double n_left = i + 1 + t; 
           double n_right = n_samples - n_left; 
-          double imp_left = (1 - (double)left_sqr_sum / (n_left * n_left)) * (n_left / n_samples);
-          double imp_right = (1 - (double)right_sqr_sum / (n_right * n_right)) * (n_right / n_samples);
+          double imp_left = (1.0 - (double)left_sqr_sum / (n_left * n_left)) * (n_left / n_samples);
+          double imp_right = (1.0 - (double)right_sqr_sum / (n_right * n_right)) * (n_right / n_samples);
           
           // Algebraically simplified GINI formula
           //double imp_left = (n_left - (double)left_sqr_sum / n_left)  / n_samples; 

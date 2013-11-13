@@ -30,24 +30,3 @@ def compare_accuracy(x,y, n_estimators = 11, bootstrap = True, slop = 0.98, n_re
   assert cuda_score_total >= (sk_score_total * slop), \
     "Getting significantly worse test accuracy than sklearn: %s vs. %s" % (cuda_score_total / n_repeat, sk_score_total / n_repeat)
 
-
-
-from sklearn import datasets
-cov = datasets.fetch_covtype()
-#cov = datasets.load_lfw_people()
-
-x_train = cov['data']#[0:10000]
-y_train = cov['target']#[0:10000]
-
-"""
-n = y_train.size / 2
-
-x_test = x_train[n:]
-y_test = y_train[n:]
-
-x_train = x_train[:n]
-y_train = y_train[:n]
-"""
-
-compare_accuracy(x_train, y_train, 21)
-

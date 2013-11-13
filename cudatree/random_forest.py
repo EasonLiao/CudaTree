@@ -146,9 +146,9 @@ class RandomForestClassifier(object):
     assert samples.size / samples[0].size == target.size
 
     target = target.copy()
-    start_timer("compact labels")
+    #start_timer("compact labels")
     self.__compact_labels(target)
-    end_timer("compact labels")
+    #end_timer("compact labels")
     
     self.n_labels = self.compt_table.size 
     self.dtype_indices = get_best_dtype(target.size)
@@ -160,10 +160,10 @@ class RandomForestClassifier(object):
     self.dtype_labels = get_best_dtype(self.n_labels)
     self.dtype_samples = samples.dtype
    
-    start_timer("transpose")
+    #start_timer("transpose")
     samples = np.require(np.transpose(samples), requirements = 'C')
     target = np.require(np.transpose(target), dtype = self.dtype_labels, requirements = 'C') 
-    end_timer("transpose")
+    #end_timer("transpose")
     
     self.n_features = samples.shape[0]
     self.stride = target.size
@@ -173,27 +173,27 @@ class RandomForestClassifier(object):
     if self.RESHUFFLE_THREADS_PER_BLOCK > self.stride:
       self.RESHUFFLE_THREADS_PER_BLOCK = 32
     
-    start_timer("samples labels to gpu")
+    #start_timer("samples labels to gpu")
     samples_gpu = gpuarray.to_gpu(samples)
     labels_gpu = gpuarray.to_gpu(target) 
-    end_timer("samples labels to gpu")
+    #end_timer("samples labels to gpu")
     
-    start_timer("argsort")
+    #start_timer("argsort")
     sorted_indices = np.argsort(samples).astype(self.dtype_indices)
     self.sorted_indices_gpu = gpuarray.to_gpu(sorted_indices)
     self.mark_table = gpuarray.empty(self.stride, np.uint8) 
-    end_timer("argsort")
+    #end_timer("argsort")
      
-    self.__compile_kernels()
 
     if bfs_threshold is None:
       bfs_threshold = int(math.ceil(float(self.stride) / 40))
       if bfs_threshold < 50:
         bfs_threshold = 50
     
-
     if self.max_features is None:
-      self.max_features = int(math.ceil(math.log(self.n_features, 2)))
+      self.max_features = int(math.ceil(np.sqrt(self.n_features)))
+    
+    self.__compile_kernels()
     
     assert self.max_features > 0 and self.max_features <= self.n_features, "max_features must be beween 1 and n_features."
     
@@ -213,9 +213,9 @@ class RandomForestClassifier(object):
       self) for i in xrange(self.n_estimators)]   
    
     for i, tree in enumerate(self.forest):
-      start_timer("get sorted indices")
+      #start_timer("get sorted indices")
       si, n_samples = self.__get_sorted_indices(sorted_indices)
-      end_timer("get sorted indices")
+      #end_timer("get sorted indices")
 
       if self.verbose: 
         with timer("Tree %s" % (i,)):

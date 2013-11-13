@@ -9,7 +9,7 @@ y = y[:10000]
 def test_covtype_memorize():
   with timer("Cuda treelearn"):
     forest = RandomForestClassifier(bootstrap = False)
-    forest.fit(x, y)
+    forest.fit(x, y, bfs_threshold = 500000)
   with timer("Predict"):
     diff, total = util.test_diff(forest.predict(x), y)  
     print "%s(Wrong)/%s(Total). The error rate is %f." % (diff, total, diff/float(total))
