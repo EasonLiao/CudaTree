@@ -6,7 +6,6 @@ from util import start_timer, end_timer
 from parakeet import jit
 from pycuda import driver
 
-
 class BaseTree(object):
   def __init__(self):
     self.root = None

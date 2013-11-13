@@ -2,7 +2,7 @@
 from cudatree import RandomForestClassifier, load_data, timer
 from cudatree import util
 
-bfs_threshold = 20000
+bfs_threshold = 1000
 debug = False
 verbose = False
 bootstrap = False

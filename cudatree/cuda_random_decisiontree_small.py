@@ -309,23 +309,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     
 
     #start_timer("gini bfs comput")   
-    #self.comput_bfs.prepared_call(
-    #      (self.queue_size, 1),
-    #      (self.BFS_THREADS, 1, 1),
-    #      self.samples_gpu.ptr,
-    #      self.labels_gpu.ptr,
-    #      self.sorted_indices_gpu.ptr,
-    #      self.sorted_indices_gpu_.ptr,
-    #      idx_array_gpu.ptr,
-    #      si_idx_array_gpu.ptr,
-    #      self.label_total.ptr,
-    #      self.features_array_gpu.ptr,
-    #      impurity_gpu.ptr,
-    #      self.min_split.ptr,
-    #      min_feature_idx_gpu.ptr,
-    #      self.max_features,
-    #      self.n_features,
-    #      self.stride)
 
     self.comput_bfs_2d.prepared_call(
           (self.queue_size, n_blocks),
@@ -472,7 +455,6 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     self.__release_gpuarrays() 
     self.__release_numpyarrays()
     #end_timer("release")
-
     #show_timings()
     #print "n_nodes : ", self.n_nodes
 
