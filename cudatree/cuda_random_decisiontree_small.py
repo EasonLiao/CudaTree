@@ -474,7 +474,7 @@ class RandomDecisionTreeSmall(RandomBaseTree):
     #end_timer("release")
 
     #show_timings()
-    print "n_nodes : ", self.n_nodes
+    #print "n_nodes : ", self.n_nodes
 
   def __gpu_decorate_nodes(self, samples, labels):
     si_0 = driver.pagelocked_empty(self.n_samples, dtype = self.dtype_indices)
