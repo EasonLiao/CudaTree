@@ -253,8 +253,7 @@ class RandomForestClassifier(object):
     return res
 
   def score(self, X, Y):
-    return np.mean(self.predict(X) == Y)
- 
+    return np.mean(self.predict(X) == Y) 
 
   def __compile_kernels(self):
     ctype_indices = dtype_to_ctype(self.dtype_indices)
@@ -311,34 +310,33 @@ class RandomForestClassifier(object):
     driver.memcpy_htod(const_stride, np.uint32(self.stride))
     driver.memcpy_htod(const_n_features, np.uint16(self.n_features))
     driver.memcpy_htod(const_max_features, np.uint16(self.max_features))
-    #sys.exit(0)
-
 
     self.scan_total_bfs = bfs_module.get_function("scan_bfs")
-    self.scan_total_bfs.prepare("PPPPPP")
+    self.scan_total_bfs.prepare("PPPP")
 
     self.comput_bfs_2d = bfs_module.get_function("compute_2d")
-    self.comput_bfs_2d.prepare("PPPPPPPPPPP")
+    self.comput_bfs_2d.prepare("PPPPPPPPP")
 
     self.fill_bfs = bfs_module.get_function("fill_table")
-    self.fill_bfs.prepare("PPPPPPP")
+    self.fill_bfs.prepare("PPPPP")
 
     self.reshuffle_bfs = bfs_module.get_function("scan_reshuffle")
     tex_ref = bfs_module.get_texref("tex_mark")
     self.mark_table.bind_to_texref_ext(tex_ref) 
-    self.reshuffle_bfs.prepare("PPPPP") 
+    self.reshuffle_bfs.prepare("PPP") 
 
     self.reduce_bfs_2d = bfs_module.get_function("reduce")
     self.reduce_bfs_2d.prepare("PPPPPPi")
     
     self.get_thresholds = bfs_module.get_function("get_thresholds")
-    self.get_thresholds.prepare("PPPPPPP")
+    self.get_thresholds.prepare("PPPPP")
    
     self.predict_kernel = mk_kernel(
         params = (ctype_indices, ctype_samples, ctype_labels), 
         func_name = "predict", 
         kernel_file = "predict.cu", 
         prepare_args = "PPPPPPPii")
-
-    
+  
+    self.bfs_module = bfs_module
+    self.dfs_module = dfs_module
 

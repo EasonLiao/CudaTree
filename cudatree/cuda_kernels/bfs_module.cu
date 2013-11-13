@@ -19,10 +19,10 @@ texture<char, 1> tex_mark;
 __device__ __constant__ uint32_t stride;
 __device__ __constant__ uint16_t n_features;
 __device__ __constant__ uint16_t max_features;
+__device__ __constant__ IDX_DATA_TYPE* sorted_indices_1;
+__device__ __constant__ IDX_DATA_TYPE* sorted_indices_2;
 
 __global__ void scan_bfs(
-                          IDX_DATA_TYPE *sorted_indices_1,
-                          IDX_DATA_TYPE *sorted_indices_2,
                           LABEL_DATA_TYPE *labels,
                           COUNT_DATA_TYPE *label_total,
                           uint8_t *si_idx,
@@ -62,12 +62,9 @@ __global__ void scan_bfs(
     label_total[blockIdx.x * MAX_NUM_LABELS + i] = shared_count[i];
 }
 
-
 __global__ void compute_2d(
                         SAMPLE_DATA_TYPE *samples, 
                         LABEL_DATA_TYPE *labels,
-                        IDX_DATA_TYPE *sorted_indices_1,
-                        IDX_DATA_TYPE *sorted_indices_2,
                         uint32_t *begin_stop_idx,
                         uint8_t *si_idx,
                         COUNT_DATA_TYPE *label_total,
@@ -80,14 +77,13 @@ __global__ void compute_2d(
   IDX_DATA_TYPE* p_sorted_indices;
   IDX_DATA_TYPE reg_start_idx;
   IDX_DATA_TYPE reg_stop_idx;
-  uint16_t reg_feature_min_idx = 0;
+  int32_t reg_feature_min_idx = 0;
 
-  __shared__ float shared_count_total[MAX_NUM_LABELS];
-  __shared__ float shared_label_count[MAX_NUM_LABELS];
+  __shared__ IDX_DATA_TYPE shared_count_total[MAX_NUM_LABELS];
+  __shared__ IDX_DATA_TYPE shared_label_count[MAX_NUM_LABELS];
   __shared__ LABEL_DATA_TYPE shared_labels[THREADS_PER_BLOCK];
   __shared__ SAMPLE_DATA_TYPE shared_samples[THREADS_PER_BLOCK];
-  
-  
+    
   reg_start_idx = begin_stop_idx[2 * blockIdx.x];
   reg_stop_idx = begin_stop_idx[2 * blockIdx.x + 1];
   
@@ -96,42 +92,58 @@ __global__ void compute_2d(
   float reg_min_right = 2.0;
   IDX_DATA_TYPE reg_min_split = reg_stop_idx;
   float n_samples = reg_stop_idx - reg_start_idx;
+  
+  int32_t left_sqr_sum = 0;
+  int32_t right_sqr_sum_origin = 0;
+  int32_t right_sqr_sum;
 
-  for(uint16_t i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x)
+  for(int32_t i = threadIdx.x; i < MAX_NUM_LABELS; i += blockDim.x)
     shared_count_total[i] = label_total[blockIdx.x * MAX_NUM_LABELS + i];
- 
+  
+  __syncthreads();
+
+  if(threadIdx.x == 0){
+    for(int32_t i = 0; i < MAX_NUM_LABELS; ++i){
+      int32_t temp = shared_count_total[i];
+      right_sqr_sum_origin += temp * temp;  
+    }
+  }
+
   uint8_t reg_si_idx = si_idx[blockIdx.x];
   if(reg_si_idx == 0)
     p_sorted_indices = sorted_indices_1;
   else
     p_sorted_indices = sorted_indices_2;
   
-  uint16_t feature_idx;
-  uint32_t offset;
+  int32_t feature_idx;
+  int32_t offset;
   
   //Number of features thie block needs to check
-  uint16_t n_tasks = max_features / gridDim.y;
+  int32_t n_tasks = max_features / gridDim.y;
 
   if(blockIdx.y < max_features %% gridDim.y)
     n_tasks++;
   
   //number of features this block has already checked
-  uint16_t n_tasks_finished = 0;
+  int32_t n_tasks_finished = 0;
 
-  for(uint16_t f = blockIdx.y; f < n_features; f += gridDim.y){
+  for(int32_t f = blockIdx.y; f < n_features; f += gridDim.y){
     feature_idx = subset_indices[f];
     offset = feature_idx * stride;
-    
+
     if(n_tasks_finished == n_tasks)
       break;
-
+  
     if(samples[offset + p_sorted_indices[offset + reg_start_idx]] == 
         samples[offset + p_sorted_indices[offset + reg_stop_idx - 1]])
       continue;
+    
+    right_sqr_sum = right_sqr_sum_origin;
+    left_sqr_sum = 0;
   
     //Reset shared_label_count array.
-    for(uint16_t t = threadIdx.x; t < MAX_NUM_LABELS; t += blockDim.x)
-      shared_label_count[t] = 0.0;
+    for(int32_t t = threadIdx.x; t < MAX_NUM_LABELS; t += blockDim.x)
+      shared_label_count[t] = 0;
     
     __syncthreads();
 
@@ -149,29 +161,23 @@ __global__ void compute_2d(
         IDX_DATA_TYPE stop_pos = (i + (blockDim.x - 1) < reg_stop_idx - 1)? (blockDim.x - 1) : reg_stop_idx - 1 - i;
         
         for(IDX_DATA_TYPE t = 0; t < stop_pos; ++t){
-          shared_label_count[shared_labels[t]]++;
-          if(shared_samples[t] == shared_samples[t + 1])
+          LABEL_DATA_TYPE l_val = shared_labels[t];
+          
+          int32_t left_cnt = shared_label_count[l_val];
+          int32_t right_cnt = shared_count_total[l_val] - left_cnt;
+          left_sqr_sum = left_sqr_sum + 2 * left_cnt + 1;
+          right_sqr_sum = right_sqr_sum - 2 * right_cnt + 1; 
+          
+          shared_label_count[l_val]++; 
+          
+          if(shared_samples[t] + DIFF_THRESHOLD >= shared_samples[t + 1])
             continue;
           
-
           float n_left =  i + t - reg_start_idx + 1;
+          float imp_left = (1.0 - (float)left_sqr_sum / (n_left * n_left)) * (n_left / n_samples);
+
           float n_right = reg_stop_idx - reg_start_idx - n_left; 
-          float imp_left = 0;
-          float imp_right = 0;
-          //imp_left = calc_imp_left(shared_label_count, n_left) * n_left / (reg_stop_idx - reg_start_idx);
-          //imp_right = calc_imp_right(shared_label_count, shared_count_total, n_right) * 
-          //  n_right / (reg_stop_idx - reg_start_idx); 
-          //calc_impurity(shared_label_count, shared_count_total, &left, &right, n_left, n_right);
-          
-          for(LABEL_DATA_TYPE r = 0; r < MAX_NUM_LABELS; ++r){
-            float left_count = shared_label_count[r];
-            imp_left += left_count * left_count;
-            float right_count = shared_count_total[r] - left_count;
-            imp_right += right_count * right_count; 
-          }
-          
-          imp_left = (1 - imp_left / (n_left * n_left)) * (n_left / n_samples);
-          imp_right = (1 - imp_right / (n_right * n_right)) * (n_right / n_samples);
+          float imp_right = (1.0 - (float)right_sqr_sum / (n_right * n_right)) * (n_right / n_samples); 
 
           if(imp_left + imp_right < reg_min_left + reg_min_right){
             reg_min_left = imp_left;
@@ -230,8 +236,6 @@ __global__ void reduce(float *imp_min_2d,
 
 
 __global__ void fill_table(
-                          IDX_DATA_TYPE *sorted_indices_1,
-                          IDX_DATA_TYPE *sorted_indices_2,
                           uint8_t *si_idx,
                           uint16_t *feature_idx,
                           uint32_t  *begin_end_idx,
@@ -261,8 +265,6 @@ __global__ void fill_table(
 
 __global__ void scan_reshuffle(
                           uint8_t* si_idx,
-                          IDX_DATA_TYPE* sorted_indices_1,
-                          IDX_DATA_TYPE* sorted_indices_2,
                           uint32_t* begin_end_idx,
                           IDX_DATA_TYPE* split
                           ){  
@@ -377,8 +379,6 @@ __global__ void scan_reshuffle(
 __global__ void get_thresholds
                             (
                             uint8_t *si_idx,
-                            IDX_DATA_TYPE *sorted_indices_0,
-                            IDX_DATA_TYPE *sorted_indices_1,
                             SAMPLE_DATA_TYPE *samples,
                             float *threshold_values,
                             uint16_t *min_feature_indices,
@@ -392,9 +392,9 @@ __global__ void get_thresholds
   uint32_t offset = row * stride;
 
   if(idx == 0)
-    p_sorted_indices = sorted_indices_0;
-  else
     p_sorted_indices = sorted_indices_1;
+  else
+    p_sorted_indices = sorted_indices_2;
    
   threshold_values[blockIdx.x] = ((float)samples[offset + p_sorted_indices[offset + col]] + 
                                     samples[offset + p_sorted_indices[offset + col + 1]]) / 2;

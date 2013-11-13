@@ -1,3 +1,4 @@
+#define DIFF_THRESHOLD 0.00001
 
 __device__ inline  float calc_imp_right(float* label_previous, float* label_now, COUNT_DATA_TYPE total_size){
   float sum = 0.0;
