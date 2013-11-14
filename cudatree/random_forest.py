@@ -121,6 +121,67 @@ class RandomForestClassifier(object):
       
       return sorted_indices_gpu, n_samples 
 
+  
+  def fit_init(self, samples, target):
+    assert isinstance(samples, np.ndarray)
+    assert isinstance(target, np.ndarray)
+    assert samples.size / samples[0].size == target.size
+    target = target.copy()
+    self.__compact_labels(target)
+
+    self.n_labels = self.compt_table.size 
+    self.dtype_indices = get_best_dtype(target.size)
+
+    if self.dtype_indices == np.dtype(np.uint8):
+      self.dtype_indices = np.dtype(np.uint16)
+
+    self.dtype_counts = self.dtype_indices
+    self.dtype_labels = get_best_dtype(self.n_labels)
+    self.dtype_samples = samples.dtype
+    
+    samples = np.require(np.transpose(samples), requirements = 'C')
+    target = np.require(np.transpose(target), dtype = self.dtype_labels, requirements = 'C') 
+    
+    self.n_features = samples.shape[0]
+    self.stride = target.size
+    
+    if self.COMPT_THREADS_PER_BLOCK > self.stride:
+      self.COMPT_THREADS_PER_BLOCK = 32
+    if self.RESHUFFLE_THREADS_PER_BLOCK > self.stride:
+      self.RESHUFFLE_THREADS_PER_BLOCK = 32
+    
+    samples_gpu = gpuarray.to_gpu(samples)
+    labels_gpu = gpuarray.to_gpu(target) 
+    
+    sorted_indices = np.argsort(samples).astype(self.dtype_indices)
+    self.sorted_indices_gpu = gpuarray.to_gpu(sorted_indices)
+    self.mark_table = gpuarray.empty(self.stride, np.uint8) 
+      
+    if self.max_features is None:
+      self.max_features = int(math.ceil(np.sqrt(self.n_features)))
+    
+    self.__compile_kernels()
+    
+    if self.bootstrap:
+      self.__init_bootstrap_kernel()
+    
+    self.sorted_indices = sorted_indices
+    self.target = target
+    self.samples = samples
+    self.samples_gpu = samples_gpu
+    self.labels_gpu = labels_gpu
+    assert self.max_features > 0 and self.max_features <= self.n_features
+    
+
+  def fit_relase(self):
+    self.target = None
+    self.samples = None
+    self.samples_gpu = None
+    self.labels_gpu = None
+    self.sorted_indices_gpu = None
+    self.mark_table = None
+    self.sorted_indices = None
+
 
   def fit(self, samples, target, bfs_threshold = None):
     """Construce multiple trees in the forest.
@@ -141,61 +202,10 @@ class RandomForestClassifier(object):
     self : object
       Returns self
     """
-    assert isinstance(samples, np.ndarray)
-    assert isinstance(target, np.ndarray)
-    assert samples.size / samples[0].size == target.size
-
-    target = target.copy()
-    #start_timer("compact labels")
-    self.__compact_labels(target)
-    #end_timer("compact labels")
+    self.fit_init(samples, target)
     
-    self.n_labels = self.compt_table.size 
-    self.dtype_indices = get_best_dtype(target.size)
-
-    if self.dtype_indices == np.dtype(np.uint8):
-      self.dtype_indices = np.dtype(np.uint16)
-
-    self.dtype_counts = self.dtype_indices
-    self.dtype_labels = get_best_dtype(self.n_labels)
-    self.dtype_samples = samples.dtype
-   
-    #start_timer("transpose")
-    samples = np.require(np.transpose(samples), requirements = 'C')
-    target = np.require(np.transpose(target), dtype = self.dtype_labels, requirements = 'C') 
-    #end_timer("transpose")
-    
-    self.n_features = samples.shape[0]
-    self.stride = target.size
-    
-    if self.COMPT_THREADS_PER_BLOCK > self.stride:
-      self.COMPT_THREADS_PER_BLOCK = 32
-    if self.RESHUFFLE_THREADS_PER_BLOCK > self.stride:
-      self.RESHUFFLE_THREADS_PER_BLOCK = 32
-    
-    #start_timer("samples labels to gpu")
-    samples_gpu = gpuarray.to_gpu(samples)
-    labels_gpu = gpuarray.to_gpu(target) 
-    #end_timer("samples labels to gpu")
-    
-    #start_timer("argsort")
-    sorted_indices = np.argsort(samples).astype(self.dtype_indices)
-    self.sorted_indices_gpu = gpuarray.to_gpu(sorted_indices)
-    self.mark_table = gpuarray.empty(self.stride, np.uint8) 
-    #end_timer("argsort")
-     
-
     if bfs_threshold is None:
-      bfs_threshold = int(math.ceil(float(self.stride) / 40))
-      if bfs_threshold < 50:
-        bfs_threshold = 50
-    
-    if self.max_features is None:
-      self.max_features = int(math.ceil(np.sqrt(self.n_features)))
-    
-    self.__compile_kernels()
-    
-    assert self.max_features > 0 and self.max_features <= self.n_features, "max_features must be beween 1 and n_features."
+      bfs_threshold = 5000
     
     if self.verbose: 
       print "bsf_threadshold : %d; bootstrap : %r; min_samples_split : %d" % (bfs_threshold, self.bootstrap, 
@@ -203,30 +213,25 @@ class RandomForestClassifier(object):
       print "n_samples : %d; n_features : %d; n_labels : %d; max_features : %d" % (self.stride, self.n_features, 
               self.n_labels, self.max_features)
 
-    if self.bootstrap:
-      self.__init_bootstrap_kernel()
-
-    self.forest = [RandomDecisionTreeSmall(samples_gpu, labels_gpu, self.compt_table, 
+    self.forest = [RandomDecisionTreeSmall(self.samples_gpu, self.labels_gpu, self.compt_table, 
       self.dtype_labels,self.dtype_samples, self.dtype_indices, self.dtype_counts,
       self.n_features, self.stride, self.n_labels, self.COMPT_THREADS_PER_BLOCK,
       self.RESHUFFLE_THREADS_PER_BLOCK, self.max_features, self.min_samples_split, bfs_threshold, self.debug, 
       self) for i in xrange(self.n_estimators)]   
    
     for i, tree in enumerate(self.forest):
-      #start_timer("get sorted indices")
-      si, n_samples = self.__get_sorted_indices(sorted_indices)
-      #end_timer("get sorted indices")
+      si, n_samples = self.__get_sorted_indices(self.sorted_indices)
 
       if self.verbose: 
         with timer("Tree %s" % (i,)):
-          tree.fit(samples, target, si, n_samples)   
+          tree.fit(self.samples, self.target, si, n_samples)   
         print ""
       else:
-        tree.fit(samples, target, si, n_samples)   
+        tree.fit(self.samples, self.target, si, n_samples)   
     
-    self.sorted_indices_gpu = None
-    self.mark_table = None
+    self.fit_relase()
     return self
+
 
   def predict(self, x):
     """Predict labels for giving samples.
@@ -252,8 +257,10 @@ class RandomForestClassifier(object):
       res = convert_result(self.compt_table, res) 
     return res
 
+
   def score(self, X, Y):
     return np.mean(self.predict(X) == Y) 
+
 
   def __compile_kernels(self):
     ctype_indices = dtype_to_ctype(self.dtype_indices)
@@ -287,12 +294,6 @@ class RandomForestClassifier(object):
 
     self.reduce_2d = dfs_module.get_function("reduce_2d")
     self.reduce_2d.prepare("PPPPPi")
-    
-    #self.comput_total_kernel = dfs_module.get_function("compute_gini_small")
-    #self.comput_total_kernel.prepare("PPPPPPPPii")
-    
-    #self.scan_total_kernel = dfs_module.get_function("scan_gini_small")
-    #self.scan_total_kernel.prepare("PPPi")
     
     self.scan_total_2d = dfs_module.get_function("scan_gini_large")
     self.scan_total_2d.prepare("PPPPii")
@@ -339,4 +340,7 @@ class RandomForestClassifier(object):
   
     self.bfs_module = bfs_module
     self.dfs_module = dfs_module
-
+  
+  def __reduce__(self):
+    print "reduce!"
+    return None
