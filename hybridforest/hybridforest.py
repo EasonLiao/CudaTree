@@ -6,6 +6,7 @@ from cudatree import load_data, RandomDecisionTreeSmall, timer, convert_result
 from cudatree import RandomForestClassifier as cdRF
 import multiprocessing
 from multiprocessing import Value, Lock, cpu_count
+import atexit
 
 def sklearn_build(X, Y, n_estimators, bootstrap, max_features, n_jobs, remain_trees, result_queue, lock):
   forests = list()
@@ -28,6 +29,12 @@ def sklearn_build(X, Y, n_estimators, bootstrap, max_features, n_jobs, remain_tr
 
   result_queue.put(forests)
   print "SK DONE"
+
+
+#kill the child process if any
+def cleanup(proc):
+  if proc.is_alive():
+    proc.terminate()
 
 
 class RandomForestClassifier(object):
@@ -87,6 +94,9 @@ class RandomForestClassifier(object):
     #Start a new process to do sklearn random forest
     p = multiprocessing.Process(target = sklearn_build, args = (X, Y, self.n_estimators, 
       self.bootstrap, self.max_features, self.n_jobs - 1, remain_trees, result_queue, lock))
+    
+    #kill the child process when program aborts
+    atexit.register(cleanup, p)
     
     #set daemon to false to enable child process to spawn new processes
     p.daemon = False
