@@ -61,6 +61,7 @@ class RandomForestClassifier(object):
     self.verbose = verbose
     self.n_estimators = n_estimators
     self.debug = debug
+    self.forest = list()
 
   def __compact_labels(self, target):
     def check_is_compacted(x):
@@ -90,7 +91,7 @@ class RandomForestClassifier(object):
     self.bootstrap_reshuffle.prepare("PPPi")
     self.mark_table.bind_to_texref_ext(tex_ref)
 
-  def __get_sorted_indices(self, sorted_indices):
+  def _get_sorted_indices(self, sorted_indices):
     """ Generate sorted indices, if bootstrap == False, then the sorted indices is as same as original sorted indices """
     
     sorted_indices_gpu_original = self.sorted_indices_gpu.copy()
@@ -220,7 +221,7 @@ class RandomForestClassifier(object):
       self) for i in xrange(self.n_estimators)]   
    
     for i, tree in enumerate(self.forest):
-      si, n_samples = self.__get_sorted_indices(self.sorted_indices)
+      si, n_samples = self._get_sorted_indices(self.sorted_indices)
 
       if self.verbose: 
         with timer("Tree %s" % (i,)):
@@ -340,7 +341,3 @@ class RandomForestClassifier(object):
   
     self.bfs_module = bfs_module
     self.dfs_module = dfs_module
-  
-  def __reduce__(self):
-    print "reduce!"
-    return None
