@@ -7,7 +7,6 @@ from cudatree import RandomForestClassifier as cdRF
 import multiprocessing
 from multiprocessing import Value, Lock, cpu_count
 
-
 def sklearn_build(X, Y, n_estimators, bootstrap, max_features, n_jobs, remain_trees, result_queue, lock):
   forests = list()
   if max_features == None:
@@ -82,13 +81,14 @@ class RandomForestClassifier(object):
     remain_trees = Value("i", self.n_estimators)
     result_queue = multiprocessing.Queue(100)
     lock = Lock()
-    
+    #how many labels    
     self.n_classes = np.unique(Y).size
 
     #Start a new process to do sklearn random forest
     p = multiprocessing.Process(target = sklearn_build, args = (X, Y, self.n_estimators, 
       self.bootstrap, self.max_features, self.n_jobs - 1, remain_trees, result_queue, lock))
-      
+    
+    #set daemon to false to enable child process to spawn new processes
     p.daemon = False
     p.start() 
 
@@ -132,4 +132,3 @@ if __name__ == "__main__":
   
   print "before prediction"
   print f.score(x_test, y_test)
-
