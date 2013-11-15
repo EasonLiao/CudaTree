@@ -8,9 +8,9 @@ best_threshold_prcts = []
 best_threshold_values = []
 
 
-all_classes = [2, 8, 32, 256]
-all_examples = [2*10**4, 8*10**4, 64*10**4]
-all_features = [8, 64, 512, 2048]
+all_classes = [2, 10, 50, 100]
+all_examples = [2*10**4, 5*10**4, 250*10**4]
+all_features = [8, 16, 32, 64, 512]
 thresholds = [1000, 2000, 3000, 4000, 5000, 10000, 20000]
 total_iters = len(all_classes) * len(all_examples) * len(all_features) * len(thresholds)
 i = 1 
