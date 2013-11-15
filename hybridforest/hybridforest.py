@@ -79,7 +79,7 @@ class RandomForestClassifier(object):
       util.log_info("Cudatree got 1 job.")
       tree = RandomClassifierTree(f.samples_gpu, f.labels_gpu, f.compt_table, f.dtype_labels, 
           f.dtype_samples, f.dtype_indices, f.dtype_counts, f.n_features, f.stride, 
-          f.n_labels, f.COMPT_THREADS_PER_BLOCK, f.RESHUFFLE_THREADS_PER_BLOCK, 
+          f.n_labels, f.COMPUTE_THREADS_PER_BLOCK, f.RESHUFFLE_THREADS_PER_BLOCK, 
           f.max_features, f.min_samples_split, bfs_threshold, f.debug, f)   
       
       si, n_samples = f._get_sorted_indices(f.sorted_indices)

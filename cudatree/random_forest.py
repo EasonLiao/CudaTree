@@ -23,7 +23,7 @@ class RandomForestClassifier(object):
     Usage:
     See RandomForestClassifier.fit
   """ 
-  COMPT_THREADS_PER_BLOCK = 128
+  COMPUTE_THREADS_PER_BLOCK = 128
   RESHUFFLE_THREADS_PER_BLOCK = 256
   BFS_THREADS = 64
   MAX_BLOCK_PER_FEATURE = 50
@@ -146,8 +146,8 @@ class RandomForestClassifier(object):
     self.n_features = samples.shape[0]
     self.stride = target.size
     
-    if self.COMPT_THREADS_PER_BLOCK > self.stride:
-      self.COMPT_THREADS_PER_BLOCK = 32
+    if self.COMPUTE_THREADS_PER_BLOCK > self.stride:
+      self.COMPUTE_THREADS_PER_BLOCK = 32
     if self.RESHUFFLE_THREADS_PER_BLOCK > self.stride:
       self.RESHUFFLE_THREADS_PER_BLOCK = 32
     
@@ -216,7 +216,7 @@ class RandomForestClassifier(object):
 
     self.forest = [RandomClassifierTree(self.samples_gpu, self.labels_gpu, self.compt_table, 
       self.dtype_labels,self.dtype_samples, self.dtype_indices, self.dtype_counts,
-      self.n_features, self.stride, self.n_labels, self.COMPT_THREADS_PER_BLOCK,
+      self.n_features, self.stride, self.n_labels, self.COMPUTE_THREADS_PER_BLOCK,
       self.RESHUFFLE_THREADS_PER_BLOCK, self.max_features, self.min_samples_split, bfs_threshold, self.debug, 
       self) for i in xrange(self.n_estimators)]   
    
@@ -285,7 +285,7 @@ class RandomForestClassifier(object):
     ctype_counts = dtype_to_ctype(self.dtype_counts)
     ctype_samples = dtype_to_ctype(self.dtype_samples)
     n_labels = self.n_labels
-    n_threads = self.COMPT_THREADS_PER_BLOCK
+    n_threads = self.COMPUTE_THREADS_PER_BLOCK
     n_shf_threads = self.RESHUFFLE_THREADS_PER_BLOCK
     
     """ DFS module """
