@@ -10,7 +10,7 @@ best_threshold_values = []
 
 all_classes = [2, 16, 256]
 all_examples = [2*10**4, 4*10**4, 8*10**4]
-all_features = [10, 80, 640]
+all_features = [10, 100, 1000]
 thresholds = [1000, 2000, 3000, 4000, 5000, 10000, 15000]
 total_iters = len(all_classes) * len(all_examples) * len(all_features) * len(thresholds)
 i = 1 
@@ -52,7 +52,7 @@ for n_classes in all_classes:
           best_threshold = bfs_threshold
           best_theshold_prct = bfs_threshold_prct
 
-      inputs.append([1.0, n_classes, n_examples, n_features, max_features])
+      inputs.append([1.0, n_classes, n_examples, max_features])
       best_threshold_values.append(best_threshold)
       best_threshold_prcts.append(best_threshold_prct)
 
