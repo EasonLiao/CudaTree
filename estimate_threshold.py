@@ -8,10 +8,10 @@ best_threshold_prcts = []
 best_threshold_values = []
 
 
-all_classes = [2, 8, 64]
-all_examples = [2*10**4, 8*10**4, 64*10**4]
-all_features = [10, 50, 250, 1250]
-thresholds = [1000, 2000, 3000, 5000, 10000, 20000]
+all_classes = [2, 16, 256]
+all_examples = [2*10**4, 4*10**4, 8*10**4]
+all_features = [10, 100, 1000]
+thresholds = [1000, 2000, 3000, 4000, 5000, 10000, 15000]
 total_iters = len(all_classes) * len(all_examples) * len(all_features) * len(thresholds)
 i = 1 
 # thresholds =  [0.001, 0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, .1, .2]
@@ -27,7 +27,7 @@ for n_classes in all_classes:
       if n_features * n_examples > 100 * 10**6:
         print "Skipping due excessive n_features * n_examples..."
         continue
-      if n_examples * n_classes > 10 ** 7:
+      if n_examples * n_classes > 10 ** 8:
         print "Skipping due to excessive n_examples * n_classes"
         continue 
 
@@ -57,17 +57,28 @@ for n_classes in all_classes:
       best_threshold_prcts.append(best_threshold_prct)
 
 X = np.array(inputs)
-print X.shape
+print "input shape", X.shape
 
 best_threshold_prcts = np.array(best_threshold_prcts)
 best_threshold_values = np.array(best_threshold_values)
 
 
-result = np.linalg.lstsq(inputs, best_threshold_values)
-print "Regression coefficients:", result[0]
-print "Regression residual:", result[1], "RMSE:", np.sqrt(result[1] / len(best_threshold_values)
-print "Rank:", result[2]
+lstsq_result = np.linalg.lstsq(X, best_threshold_values)
+print "Regression coefficients:", lstsq_result[0]
+n = len(best_threshold_values)
+print "Regression residual:", lstsq_result[1], "RMSE:", np.sqrt(lstsq_result[1] / n)
 
+import sklearn
+import sklearn.linear_model
+ridge = sklearn.linear_model.RidgeCV(alphas = [0.01, 0.1, 1, 10, 100], fit_intercept = False)
+ridge.fit(X, best_threshold_values)
+print "Ridge regression coef", ridge.coef_
+print "Ridge regression alpha", ridge.alpha_
+
+pred = ridge.predict(X)
+sse = np.sum( (pred - best_threshold_values) ** 2)
+print "Ridge residual", sse
+print "Ridge RMSE", np.sqrt(sse / n)
 
 import socket 
 csv_filename = "threshold_results_" + socket.gethostname()

@@ -207,7 +207,13 @@ class RandomForestClassifier(object):
     
     if bfs_threshold is None:
       n_classes = len(np.unique(target))
-      bfs_threshold = 6058 + 17 * self.n_classes - 147 * self.max_features 
+      n_samples = len(samples)
+      # coefficients estimated by regression over best thresholds for randomly generated data sets 
+      bfs_threshold = int(3855 - 2 * n_classes + 0.076 * n_samples - 10.7 * self.max_features)
+      # don't let it grow too big
+      bfs_threshold = min(bfs_threshold, min(n_samples, 25000))
+      # ...or too small
+      bfs_threshold = max(bfs_threshold, 2000)
     
     if self.verbose: 
       print "bsf_threadshold : %d; bootstrap : %r; min_samples_split : %d" % (bfs_threshold, self.bootstrap, 
