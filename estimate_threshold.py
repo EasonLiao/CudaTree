@@ -10,7 +10,7 @@ best_threshold_values = []
 
 all_classes = [2, 8, 64]
 all_examples = [2*10**4, 8*10**4, 64*10**4]
-all_features = [8, 64, 512]
+all_features = [10, 50, 250, 1250]
 thresholds = [1000, 2000, 3000, 5000, 10000, 20000]
 total_iters = len(all_classes) * len(all_examples) * len(all_features) * len(thresholds)
 i = 1 
@@ -65,7 +65,7 @@ best_threshold_values = np.array(best_threshold_values)
 
 result = np.linalg.lstsq(inputs, best_threshold_values)
 print "Regression coefficients:", result[0]
-print "Regression residuals:", result[1]
+print "Regression residual:", result[1], "RMSE:", np.sqrt(result[1] / len(best_threshold_values)
 print "Rank:", result[2]
 
 
