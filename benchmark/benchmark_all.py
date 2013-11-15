@@ -22,14 +22,12 @@ def benchmark_cuda(dataset, auto_best_threshold = False):
   else: 
     bfs_threshold = global_bfs_threshold
 
-  print "bfs_threshold : ", bfs_threshold
-  
   #Just use this forest to compile the code.
   throw_away = RandomForestClassifier(n_estimators = 1, bootstrap = bootstrap, verbose = False, 
         max_features = None, debug = debug)
   throw_away.fit(x_train, y_train, bfs_threshold = bfs_threshold)
 
-  with timer("%s benchmark cuda" % (dataset,)): 
+  with timer("%s benchmark cuda (bfs_threshold = %d)" % (dataset, bfs_threshold)): 
     forest = RandomForestClassifier(n_estimators = 50, bootstrap = bootstrap, verbose = verbose, 
         max_features = None, debug = debug)
     forest.fit(x_train, y_train, bfs_threshold = bfs_threshold)
@@ -57,16 +55,23 @@ def benchmark_hybrid(dataset, auto_best_threshold = False):
         max_features = None)
     forest.fit(x_train, y_train, bfs_threshold = bfs_threshold)
 
+"""
 benchmark_hybrid("cf100")
 benchmark_hybrid("kdd")
 benchmark_hybrid("covtype")
 benchmark_hybrid("cf10")
-
 benchmark_cuda("cf100", True)
 benchmark_cuda("kdd", True)
 benchmark_cuda("covtype", True)
 benchmark_cuda("cf10", True)
+"""
+global_bfs_threshold = 500
+benchmark_cuda("cf100")
+benchmark_cuda("kdd")
+benchmark_cuda("covtype")
+benchmark_cuda("cf10")
 
+global_bfs_threshold = 5000
 benchmark_cuda("cf100")
 benchmark_cuda("kdd")
 benchmark_cuda("covtype")

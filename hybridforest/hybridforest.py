@@ -38,6 +38,12 @@ def cleanup(proc):
 
 
 class RandomForestClassifier(object):
+  """
+  This RandomForestClassifier uses both CudaTree and sklearn.ensemble.RandomForestClassifier
+  to construct random forest. The reason is that CudaTree only use one CPU core, the main computation is done at
+  GPU side, so in order to get maximum utilization of the system, we can train one CudaTree random forest with
+  GPU and one core of CPU, and simultaneously we construct some trees on others cores by sklearn.
+  """
   def __init__(self, n_estimators = 10, n_jobs = -1, max_features = None, bootstrap = True):
     self.n_estimators = n_estimators
     self.max_features = max_features
