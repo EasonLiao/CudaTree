@@ -7,6 +7,7 @@ from cudatree import RandomForestClassifier as cdRF
 import multiprocessing
 from multiprocessing import Value, Lock, cpu_count
 import atexit
+from cudatree import util
 
 def sklearn_build(X, Y, n_estimators, bootstrap, max_features, n_jobs, remain_trees, result_queue, lock):
   forests = list()
@@ -22,13 +23,13 @@ def sklearn_build(X, Y, n_estimators, bootstrap, max_features, n_jobs, remain_tr
     remain_trees.value -= n_jobs
     lock.release()
 
-    print "sklearn : ", n_jobs
+    util.log_info("sklearn got %s jobs.", n_jobs)
     f = skRF(n_estimators = n_jobs, n_jobs = n_jobs, bootstrap = bootstrap, max_features = max_features)
     f.fit(X, Y)
     forests.append(f)
 
   result_queue.put(forests)
-  print "SK DONE"
+  util.log_info("sklearn's job done")
 
 
 #kill the child process if any
@@ -75,6 +76,7 @@ class RandomForestClassifier(object):
       remain_trees.value -= 1
       lock.release()
       
+      util.log_info("Cudatree got 1 job.")
       tree = RandomClassifierTree(f.samples_gpu, f.labels_gpu, f.compt_table, f.dtype_labels, 
           f.dtype_samples, f.dtype_indices, f.dtype_counts, f.n_features, f.stride, 
           f.n_labels, f.COMPT_THREADS_PER_BLOCK, f.RESHUFFLE_THREADS_PER_BLOCK, 
@@ -86,7 +88,7 @@ class RandomForestClassifier(object):
     
     #release the resource
     self._cuda_forest.fit_release()
-    print "CUDA DONE"
+    util.log_info("cudatee's job done")
 
 
   def fit(self, X, Y, bfs_threshold = None):
@@ -135,16 +137,3 @@ class RandomForestClassifier(object):
 
   def score(self, X, Y):
     return np.mean(self.predict(X) == Y)
-
-
-if __name__ == "__main__":
-  x_train, y_train = load_data("cf100")
-  x_test = x_train[0:100]
-  y_test = y_train[0:100]
-
-  with timer("hybird version"):
-    f = RandomForestClassifier(50, max_features = None, bootstrap = False)
-    f.fit(x_train, y_train)
-  
-  print "before prediction"
-  print f.score(x_test, y_test)

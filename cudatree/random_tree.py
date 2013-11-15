@@ -11,6 +11,7 @@ import random
 from parakeet import jit
 from util import start_timer, end_timer, show_timings
 import sys
+import util
 
 def sync():
   if False:
@@ -425,10 +426,7 @@ class RandomClassifierTree(RandomBaseTree):
     self.sorted_indices_gpu = sorted_indices 
     self.sorted_indices_gpu_ = self.sorted_indices_gpu.copy()
     self.__compile_kernels() 
-    #end_timer("compile kernels")
-
-    
-
+    #end_timer("compile kernels")  
     self.n_samples = n_samples    
 
     self.sorted_indices_gpu.idx = 0
@@ -456,7 +454,6 @@ class RandomClassifierTree(RandomBaseTree):
     self.__release_numpyarrays()
     #end_timer("release")
     #show_timings()
-    #print "n_nodes : ", self.n_nodes
 
   def __gpu_decorate_nodes(self, samples, labels):
     si_0 = driver.pagelocked_empty(self.n_samples, dtype = self.dtype_indices)

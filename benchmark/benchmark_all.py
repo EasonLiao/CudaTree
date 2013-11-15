@@ -82,9 +82,14 @@ benchmark_cuda("cf10")
 
 threshold_list = [500, 2000, 5000, 10000, 50000]
 
+
+benchmark_hybrid("cf10")
+
+"""
 for threshold in threshold_list:
   global_bfs_threshold = threshold
   benchmark_cuda("cf100")
   benchmark_cuda("kdd")
   benchmark_cuda("covtype")
   benchmark_cuda("cf10")
+"""
