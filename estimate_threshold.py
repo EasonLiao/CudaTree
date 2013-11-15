@@ -4,23 +4,23 @@ import time
 
 
 inputs = []
-best_thresholds = []
+best_threshold_prcts = []
+best_threshold_values = []
 
-all_log_classes = [1,3,6]
-all_log_examples = [4,5,6]
-all_log_features = [0.5,1,2,2.5]
-thresholds =  [0.001, 0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, .1, .2]
-for log_n_classes in all_log_classes:
-  n_classes = int(2**log_n_classes)
+
+all_classes = [2, 10, 100]
+all_examples = [10**4, 10**5, 10**6]
+all_features = [10, 100, 1000]
+thresholds = [1000, 2000, 2500, 3000, 3500, 5000, 10000, 20000]
+# thresholds =  [0.001, 0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, .1, .2]
+for n_classes in all_classes:
   print "n_classes", n_classes
-  for log_n_examples in all_log_examples:
-    n_examples = int(10 ** log_n_examples)
+  for n_examples in all_examples:
     print "n_examples", n_examples
     y = np.random.randint(low = 0, high = n_classes, size = n_examples)
     
-    for log_n_features in all_log_features:
+    for n_features in all_features:
       
-      n_features = int(10**log_n_features)
       print "n_features", n_features
       if n_features * n_examples > 100 * 10**6:
         print "Skipping due excessive n_features * n_examples..."
@@ -35,29 +35,42 @@ for log_n_classes in all_log_classes:
       throwaway.fit(x,y)
       best_time = np.inf
       best_threshold = None
-      
-      for threshold in thresholds:
-        bfs_threshold = int(n_examples * threshold)
-        print "  -- threshold", threshold, bfs_threshold
+      best_threshold_prct = None 
+      for bfs_threshold in thresholds:
+        bfs_threshold_prct = float(bfs_threshold) / n_examples
+        print "  -- threshold",  bfs_threshold, "(", bfs_threshold_prct, ")"
         start_t = time.time()
-        cudatree.RandomForestClassifier(n_estimators = 3, bootstrap = False, max_features = int(np.sqrt(n_features))).fit(x,y, bfs_threshold) 
+        cudatree.RandomForestClassifier(n_estimators = 5, bootstrap = False, max_features = int(np.sqrt(n_features))).fit(x,y, bfs_threshold) 
         t = time.time() - start_t
         print "  ---> total time", t 
         if t < best_time:
           best_time = t
-          best_threshold = threshold
-      inputs.append([1.0, log_n_classes, log_n_examples, log_n_features])
-      best_thresholds.append(best_threshold)
+          best_threshold = bfs_threshold
+          best_theshold_prct = bfs_threshold_prct
 
-print inputs
-inputs = np.array(inputs)
-print inputs.shape
+      inputs.append([1.0, n_classes, n_examples, n_features])
+      best_threshold_values.append(best_threshold)
+      best_threshold_prcts.append(best_threshold_prct)
 
-print best_thresholds
-best_thresholds = np.array(best_thresholds)
-target_values = np.log(100 * best_thresholds)
-print target_values.shape
+X = np.array(inputs)
+print X.shape
 
-result = np.linalg.lstsq(inputs, target_values)
-for elt in result:
-  print elt
+best_threshold_prcts = np.array(best_threshold_prcts)
+best_threshold_values = np.array(best_threshold_values)
+
+
+result = np.linalg.lstsq(inputs, best_threshold_values)
+print "Regression coefficients:", result[0]
+print "Regression residuals:", result[1]
+print "Rank:", result[2]
+
+
+import socket 
+csv_filename = "threshold_results_" + socket.gethostname()
+with open(csv_filename, 'w') as csvfile:
+    for i, input_tuple in enumerate(inputs):
+      csvfile.write(str(input_tuple[1:]))
+      csvfile.write("," + str(best_threshold_values[i]))
+      csvfile.write("," + str(best_threshold_prcts[i]))
+      csvfile.write("\n")
+
