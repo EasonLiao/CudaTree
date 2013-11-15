@@ -207,7 +207,7 @@ class RandomForestClassifier(object):
     
     if bfs_threshold is None:
       n_classes = len(np.unique(target))
-      bfs_threshold = 6058 + 17 * self.n_classes - 147 * self.max_features 
+      bfs_threshold = 6058 + 17 * n_classes - 147 * self.max_features 
     
     if self.verbose: 
       print "bsf_threadshold : %d; bootstrap : %r; min_samples_split : %d" % (bfs_threshold, self.bootstrap, 
