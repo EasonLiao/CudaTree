@@ -441,7 +441,8 @@ class RandomClassifierTree(RandomBaseTree):
 
     self.__allocate_numpyarrays()
     self.n_nodes = 0 
-
+    
+    self.__shuffle_feature_indices()
     self.root = self.__dfs_construct(1, 1.0, 0, self.n_samples, self.sorted_indices_gpu, self.sorted_indices_gpu_)  
     self.__bfs_construct() 
 
