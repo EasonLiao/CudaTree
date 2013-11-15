@@ -40,7 +40,7 @@ for n_classes in all_classes:
         bfs_threshold_prct = float(bfs_threshold) / n_examples
         print "  -- threshold",  bfs_threshold, "(", bfs_threshold_prct, ")"
         start_t = time.time()
-        cudatree.RandomForestClassifier(n_estimators = 5, bootstrap = False, max_features = int(np.sqrt(n_features))).fit(x,y, bfs_threshold) 
+        cudatree.RandomForestClassifier(n_estimators = 3, bootstrap = False, max_features = int(np.sqrt(n_features))).fit(x,y, bfs_threshold) 
         t = time.time() - start_t
         print "  ---> total time", t 
         if t < best_time:
