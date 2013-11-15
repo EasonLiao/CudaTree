@@ -18,9 +18,7 @@ for n_classes in all_classes:
   for n_examples in all_examples:
     print "n_examples", n_examples
     y = np.random.randint(low = 0, high = n_classes, size = n_examples)
-    
     for n_features in all_features:
-      
       print "n_features", n_features
       if n_features * n_examples > 100 * 10**6:
         print "Skipping due excessive n_features * n_examples..."
@@ -30,9 +28,9 @@ for n_classes in all_classes:
         continue 
 
       x = np.random.randn(n_examples, n_features)
-      
-      throwaway = cudatree.RandomForestClassifier(n_estimators=1)
-      throwaway.fit(x,y)
+      rf = cudatree.RandomForestClassifier(n_estimators = 3, bootstrap = False, max_features = int(np.sqrt(n_features)))
+      # warm up
+      rf.fit(x[:100],y[:100])
       best_time = np.inf
       best_threshold = None
       best_threshold_prct = None 
@@ -40,7 +38,7 @@ for n_classes in all_classes:
         bfs_threshold_prct = float(bfs_threshold) / n_examples
         print "  -- threshold",  bfs_threshold, "(", bfs_threshold_prct, ")"
         start_t = time.time()
-        cudatree.RandomForestClassifier(n_estimators = 3, bootstrap = False, max_features = int(np.sqrt(n_features))).fit(x,y, bfs_threshold) 
+        rf.fit(x, y, bfs_threshold)
         t = time.time() - start_t
         print "  ---> total time", t 
         if t < best_time:
