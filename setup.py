@@ -22,8 +22,8 @@ Usage
   import numpy as np
   from cudatree import load_data, RandomForestClassifier
   x_train, y_train = load_data("digits")
-  forest = RandomForestClassifier()
-  forest.fit(x_train, y_train, n_trees=50, verbose = True, bootstrap = False)
+  forest = RandomForestClassifier(n_estimators = 50, max_features = 6)
+  forest.fit(x_train, y_train)
   forest.predict(x_train)
 
 Dependencies
@@ -45,6 +45,7 @@ CudaTree is writen for Python 2.7 and depends on:
     package_data = {'cudatree' : ['cuda_kernels/*.cu']},
     #ext_modules = ext_modules,
     #cmdclass = {'build_ext' : build_ext},
+    url = "https://github.com/EasonLiao/CudaTree"
     install_requires = [
         'numpy',
         'scikit-learn',
