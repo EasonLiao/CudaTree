@@ -9,17 +9,13 @@ def compare_accuracy(x,y, n_estimators = 11, bootstrap = True, slop = 0.98, n_re
   ytest = y[n:]
   cudarf = RandomForestClassifier(n_estimators = n_estimators, bootstrap = bootstrap)
   import sklearn.ensemble
-  skrf = sklearn.ensemble.RandomForestClassifier(n_estimators = n_estimators, bootstrap = bootstrap, max_features = "log2")
+  skrf = sklearn.ensemble.RandomForestClassifier(n_estimators = n_estimators, bootstrap = bootstrap)
   cuda_score_total = 0 
   sk_score_total = 0
   for i in xrange(n_repeat):
-    print "cuda fit"
     cudarf.fit(xtrain, ytrain)
-    print "sk fit"
     skrf.fit(xtrain, ytrain)
-    print "sk predict"
     sk_score = skrf.score(xtest, ytest)
-    print "cuda predict"
     cuda_score = cudarf.score(xtest, ytest)
     print "Iteration", i 
     print "Sklearn score", sk_score 

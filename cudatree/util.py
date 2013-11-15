@@ -4,6 +4,16 @@ from pycuda.compiler import SourceModule
 from os import path
 import operator
 import os
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+
+log_debug = logging.debug
+log_info = logging.info
+log_warn = logging.warn
+log_error = logging.error
+log_fatal = logging.fatal
+
 
 _kernel_cache = {}
 _module_cache = {}

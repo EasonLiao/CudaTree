@@ -78,4 +78,3 @@ class BaseTree(object):
 
   def _find_most_common_label(self, x):
     return np.argmax(np.bincount(x))
-

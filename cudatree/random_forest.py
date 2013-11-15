@@ -1,5 +1,5 @@
 import numpy as np
-from cuda_random_decisiontree_small import RandomDecisionTreeSmall
+from random_tree import RandomClassifierTree
 from util import timer, get_best_dtype, dtype_to_ctype, mk_kernel, mk_tex_kernel, compile_module
 from pycuda import gpuarray
 from pycuda import driver
@@ -174,7 +174,7 @@ class RandomForestClassifier(object):
     assert self.max_features > 0 and self.max_features <= self.n_features
     
 
-  def fit_relase(self):
+  def fit_release(self):
     self.target = None
     self.samples = None
     self.samples_gpu = None
@@ -214,7 +214,7 @@ class RandomForestClassifier(object):
       print "n_samples : %d; n_features : %d; n_labels : %d; max_features : %d" % (self.stride, self.n_features, 
               self.n_labels, self.max_features)
 
-    self.forest = [RandomDecisionTreeSmall(self.samples_gpu, self.labels_gpu, self.compt_table, 
+    self.forest = [RandomClassifierTree(self.samples_gpu, self.labels_gpu, self.compt_table, 
       self.dtype_labels,self.dtype_samples, self.dtype_indices, self.dtype_counts,
       self.n_features, self.stride, self.n_labels, self.COMPT_THREADS_PER_BLOCK,
       self.RESHUFFLE_THREADS_PER_BLOCK, self.max_features, self.min_samples_split, bfs_threshold, self.debug, 
@@ -230,7 +230,7 @@ class RandomForestClassifier(object):
       else:
         tree.fit(self.samples, self.target, si, n_samples)   
     
-    self.fit_relase()
+    self.fit_release()
     return self
 
 
@@ -256,7 +256,23 @@ class RandomForestClassifier(object):
     res =  np.array([np.argmax(np.bincount(res[:,i])) for i in xrange(res.shape[1])]) 
     if hasattr(self, "compt_table"):
       res = convert_result(self.compt_table, res) 
+
     return res
+
+  def predict_proba(self, x):
+    x = np.require(x.copy(), requirements = "C")
+    res = np.ndarray((len(self.forest), x.shape[0]), dtype = self.dtype_labels)
+    res_proba = np.ndarray((x.shape[0], self.n_labels), np.float64)
+    
+    for i, tree in enumerate(self.forest):
+      res[i] =  tree.gpu_predict(x)
+    
+    for i in xrange(x.shape[0]):
+      tmp_res = np.bincount(res[:, i])
+      tmp_res.resize(self.n_labels)
+      res_proba[i] = tmp_res.astype(np.float64) / len(self.forest)
+
+    return res_proba
 
 
   def score(self, X, Y):
