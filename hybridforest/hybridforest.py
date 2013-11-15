@@ -2,7 +2,7 @@
 import sklearn
 from sklearn.ensemble import RandomForestClassifier as skRF
 import numpy as np
-from cudatree import load_data, RandomDecisionTreeSmall, timer, convert_result
+from cudatree import load_data, RandomClassifierTree, timer, convert_result
 from cudatree import RandomForestClassifier as cdRF
 import multiprocessing
 from multiprocessing import Value, Lock, cpu_count
@@ -42,7 +42,7 @@ class RandomForestClassifier(object):
   This RandomForestClassifier uses both CudaTree and sklearn.ensemble.RandomForestClassifier
   to construct random forest. The reason is that CudaTree only use one CPU core, the main computation is done at
   GPU side, so in order to get maximum utilization of the system, we can train one CudaTree random forest with
-  GPU and one core of CPU, and simultaneously we construct some trees on others cores by sklearn.
+  GPU and one core of CPU, and simultaneously we construct some trees on other cores by sklearn.
   """
   def __init__(self, n_estimators = 10, n_jobs = -1, max_features = None, bootstrap = True):
     self.n_estimators = n_estimators
@@ -75,7 +75,7 @@ class RandomForestClassifier(object):
       remain_trees.value -= 1
       lock.release()
       
-      tree = RandomDecisionTreeSmall(f.samples_gpu, f.labels_gpu, f.compt_table, f.dtype_labels, 
+      tree = RandomClassifierTree(f.samples_gpu, f.labels_gpu, f.compt_table, f.dtype_labels, 
           f.dtype_samples, f.dtype_indices, f.dtype_counts, f.n_features, f.stride, 
           f.n_labels, f.COMPT_THREADS_PER_BLOCK, f.RESHUFFLE_THREADS_PER_BLOCK, 
           f.max_features, f.min_samples_split, bfs_threshold, f.debug, f)   

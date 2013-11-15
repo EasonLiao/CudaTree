@@ -31,7 +31,7 @@ def benchmark_cuda(dataset, auto_best_threshold = False):
     forest = RandomForestClassifier(n_estimators = 50, bootstrap = bootstrap, verbose = verbose, 
         max_features = None, debug = debug)
     forest.fit(x_train, y_train, bfs_threshold = bfs_threshold)
-
+  forest = None
 
 def benchmark_hybrid(dataset, auto_best_threshold = False):
   x_train, y_train = load_data(dataset)
@@ -54,6 +54,7 @@ def benchmark_hybrid(dataset, auto_best_threshold = False):
     forest = hybridForest(n_estimators = 50, bootstrap = bootstrap, 
         max_features = None)
     forest.fit(x_train, y_train, bfs_threshold = bfs_threshold)
+  forest = None
 
 """
 benchmark_hybrid("cf100")
@@ -65,14 +66,25 @@ benchmark_cuda("kdd", True)
 benchmark_cuda("covtype", True)
 benchmark_cuda("cf10", True)
 """
-global_bfs_threshold = 500
+"""
+global_bfs_threshold = 10000
 benchmark_cuda("cf100")
 benchmark_cuda("kdd")
 benchmark_cuda("covtype")
 benchmark_cuda("cf10")
 
-global_bfs_threshold = 5000
+global_bfs_threshold = 50000
 benchmark_cuda("cf100")
 benchmark_cuda("kdd")
 benchmark_cuda("covtype")
 benchmark_cuda("cf10")
+"""
+
+threshold_list = [500, 2000, 5000, 10000, 50000]
+
+for threshold in threshold_list:
+  global_bfs_threshold = threshold
+  benchmark_cuda("cf100")
+  benchmark_cuda("kdd")
+  benchmark_cuda("covtype")
+  benchmark_cuda("cf10")

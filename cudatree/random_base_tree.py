@@ -1,5 +1,5 @@
 import numpy as np
-from cuda_base_tree import BaseTree
+from base_tree import BaseTree
 import random
 
 class RandomBaseTree(BaseTree):

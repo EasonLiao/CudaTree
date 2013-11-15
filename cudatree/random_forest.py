@@ -1,5 +1,5 @@
 import numpy as np
-from cuda_random_decisiontree_small import RandomDecisionTreeSmall
+from random_tree import RandomClassifierTree
 from util import timer, get_best_dtype, dtype_to_ctype, mk_kernel, mk_tex_kernel, compile_module
 from pycuda import gpuarray
 from pycuda import driver
@@ -214,7 +214,7 @@ class RandomForestClassifier(object):
       print "n_samples : %d; n_features : %d; n_labels : %d; max_features : %d" % (self.stride, self.n_features, 
               self.n_labels, self.max_features)
 
-    self.forest = [RandomDecisionTreeSmall(self.samples_gpu, self.labels_gpu, self.compt_table, 
+    self.forest = [RandomClassifierTree(self.samples_gpu, self.labels_gpu, self.compt_table, 
       self.dtype_labels,self.dtype_samples, self.dtype_indices, self.dtype_counts,
       self.n_features, self.stride, self.n_labels, self.COMPT_THREADS_PER_BLOCK,
       self.RESHUFFLE_THREADS_PER_BLOCK, self.max_features, self.min_samples_split, bfs_threshold, self.debug, 

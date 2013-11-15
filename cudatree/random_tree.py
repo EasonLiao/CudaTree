@@ -5,7 +5,7 @@ import numpy as np
 import math
 from util import total_times, compile_module, mk_kernel, mk_tex_kernel, timer
 from util import  dtype_to_ctype, get_best_dtype, start_timer, end_timer
-from cuda_random_base_tree import RandomBaseTree
+from random_base_tree import RandomBaseTree
 from pycuda import driver
 import random
 from parakeet import jit
@@ -105,7 +105,7 @@ def bfs_loop(queue_size, n_nodes, max_features, new_idx_array, idx_array, new_si
   return n_nodes , new_queue_size, new_idx_array, new_si_idx_array, new_nid_array
 
 
-class RandomDecisionTreeSmall(RandomBaseTree): 
+class RandomClassifierTree(RandomBaseTree): 
   def __init__(self, samples_gpu, labels_gpu, compt_table, dtype_labels, dtype_samples, 
       dtype_indices, dtype_counts, n_features, stride, n_labels, n_threads, n_shf_threads, max_features = None,
       min_samples_split = None, bfs_threshold = 64, debug = False, forest = None):
