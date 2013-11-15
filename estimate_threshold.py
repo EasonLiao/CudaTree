@@ -8,10 +8,12 @@ best_threshold_prcts = []
 best_threshold_values = []
 
 
-all_classes = [2, 10, 100]
-all_examples = [10**4, 10**5, 10**6]
-all_features = [10, 100, 1000]
-thresholds = [1000, 2000, 2500, 3000, 3500, 5000, 10000, 20000]
+all_classes = [2, 8, 64]
+all_examples = [2*10**4, 8*10**4, 64*10**4]
+all_features = [8, 64, 512]
+thresholds = [1000, 2000, 3000, 5000, 10000, 20000]
+total_iters = len(all_classes) * len(all_examples) * len(all_features) * len(thresholds)
+i = 1 
 # thresholds =  [0.001, 0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, .1, .2]
 for n_classes in all_classes:
   print "n_classes", n_classes
@@ -20,6 +22,8 @@ for n_classes in all_classes:
     y = np.random.randint(low = 0, high = n_classes, size = n_examples)
     for n_features in all_features:
       print "n_features", n_features
+      max_features = int(np.sqrt(n_features))
+      print "sqrt(n_features) =", max_features 
       if n_features * n_examples > 100 * 10**6:
         print "Skipping due excessive n_features * n_examples..."
         continue
@@ -28,15 +32,17 @@ for n_classes in all_classes:
         continue 
 
       x = np.random.randn(n_examples, n_features)
-      rf = cudatree.RandomForestClassifier(n_estimators = 3, bootstrap = False, max_features = int(np.sqrt(n_features)))
+      rf = cudatree.RandomForestClassifier(n_estimators = 2, bootstrap = False, max_features = max_features)
       # warm up
       rf.fit(x[:100],y[:100])
       best_time = np.inf
       best_threshold = None
       best_threshold_prct = None 
       for bfs_threshold in thresholds:
+        
         bfs_threshold_prct = float(bfs_threshold) / n_examples
-        print "  -- threshold",  bfs_threshold, "(", bfs_threshold_prct, ")"
+        print "  -- (%d / %d) threshold %d (%0.2f%%)" % (i, total_iters,  bfs_threshold, bfs_threshold_prct * 100)
+        i += 1 
         start_t = time.time()
         rf.fit(x, y, bfs_threshold)
         t = time.time() - start_t
@@ -46,7 +52,7 @@ for n_classes in all_classes:
           best_threshold = bfs_threshold
           best_theshold_prct = bfs_threshold_prct
 
-      inputs.append([1.0, n_classes, n_examples, n_features])
+      inputs.append([1.0, n_classes, n_examples, max_features])
       best_threshold_values.append(best_threshold)
       best_threshold_prcts.append(best_threshold_prct)
 
