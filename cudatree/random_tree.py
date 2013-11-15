@@ -118,7 +118,7 @@ class RandomClassifierTree(RandomBaseTree):
     self.dtype_indices = dtype_indices
     self.dtype_counts = dtype_counts
     self.n_features = n_features
-    self.COMPT_THREADS_PER_BLOCK = n_threads
+    self.COMPUTE_THREADS_PER_BLOCK = n_threads
     self.RESHUFFLE_THREADS_PER_BLOCK = n_shf_threads
     self.samples_gpu = samples_gpu
     self.labels_gpu = labels_gpu
@@ -480,7 +480,7 @@ class RandomClassifierTree(RandomBaseTree):
     #end_timer("leaf")
 
   def __gini_small(self, n_samples, indices_offset, si_gpu_in):
-    block = (self.COMPT_THREADS_PER_BLOCK, 1, 1)
+    block = (self.COMPUTE_THREADS_PER_BLOCK, 1, 1)
     grid = (self.max_features, 1) 
     
     #start_timer("gini small")
@@ -539,7 +539,7 @@ class RandomClassifierTree(RandomBaseTree):
     #start_timer("gini dfs scan")
     self.scan_total_2d.prepared_call(
           (self.max_features, n_block),
-          (self.COMPT_THREADS_PER_BLOCK, 1, 1),
+          (self.COMPUTE_THREADS_PER_BLOCK, 1, 1),
           si_gpu_in.ptr + indices_offset,
           self.labels_gpu.ptr,
           self.label_total_2d.ptr,
@@ -558,7 +558,7 @@ class RandomClassifierTree(RandomBaseTree):
     #start_timer("gini dfs comput")
     self.comput_total_2d.prepared_call(
          (self.max_features, n_block),
-         (self.COMPT_THREADS_PER_BLOCK, 1, 1),
+         (self.COMPUTE_THREADS_PER_BLOCK, 1, 1),
          si_gpu_in.ptr + indices_offset,
          self.samples_gpu.ptr,
          self.labels_gpu.ptr,

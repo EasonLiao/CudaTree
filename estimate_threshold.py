@@ -4,24 +4,26 @@ import time
 
 
 inputs = []
-best_thresholds = []
+best_threshold_prcts = []
+best_threshold_values = []
 
-all_log_classes = [1,3,6]
-all_log_examples = [4,5,6]
-all_log_features = [0.5,1,2,2.5]
-thresholds =  [0.001, 0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, .1, .2]
-for log_n_classes in all_log_classes:
-  n_classes = int(2**log_n_classes)
+
+all_classes = [2, 8, 64]
+all_examples = [2*10**4, 8*10**4, 64*10**4]
+all_features = [10, 50, 250, 1250]
+thresholds = [1000, 2000, 3000, 5000, 10000, 20000]
+total_iters = len(all_classes) * len(all_examples) * len(all_features) * len(thresholds)
+i = 1 
+# thresholds =  [0.001, 0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, .1, .2]
+for n_classes in all_classes:
   print "n_classes", n_classes
-  for log_n_examples in all_log_examples:
-    n_examples = int(10 ** log_n_examples)
+  for n_examples in all_examples:
     print "n_examples", n_examples
     y = np.random.randint(low = 0, high = n_classes, size = n_examples)
-    
-    for log_n_features in all_log_features:
-      
-      n_features = int(10**log_n_features)
+    for n_features in all_features:
       print "n_features", n_features
+      max_features = int(np.sqrt(n_features))
+      print "sqrt(n_features) =", max_features 
       if n_features * n_examples > 100 * 10**6:
         print "Skipping due excessive n_features * n_examples..."
         continue
@@ -30,34 +32,49 @@ for log_n_classes in all_log_classes:
         continue 
 
       x = np.random.randn(n_examples, n_features)
-      
-      throwaway = cudatree.RandomForestClassifier(n_estimators=1)
-      throwaway.fit(x,y)
+      rf = cudatree.RandomForestClassifier(n_estimators = 2, bootstrap = False, max_features = max_features)
+      # warm up
+      rf.fit(x[:100],y[:100])
       best_time = np.inf
       best_threshold = None
-      
-      for threshold in thresholds:
-        bfs_threshold = int(n_examples * threshold)
-        print "  -- threshold", threshold, bfs_threshold
+      best_threshold_prct = None 
+      for bfs_threshold in thresholds:
+        
+        bfs_threshold_prct = float(bfs_threshold) / n_examples
+        print "  -- (%d / %d) threshold %d (%0.2f%%)" % (i, total_iters,  bfs_threshold, bfs_threshold_prct * 100)
+        i += 1 
         start_t = time.time()
-        cudatree.RandomForestClassifier(n_estimators = 3, bootstrap = False, max_features = int(np.sqrt(n_features))).fit(x,y, bfs_threshold) 
+        rf.fit(x, y, bfs_threshold)
         t = time.time() - start_t
         print "  ---> total time", t 
         if t < best_time:
           best_time = t
-          best_threshold = threshold
-      inputs.append([1.0, log_n_classes, log_n_examples, log_n_features])
-      best_thresholds.append(best_threshold)
+          best_threshold = bfs_threshold
+          best_theshold_prct = bfs_threshold_prct
 
-print inputs
-inputs = np.array(inputs)
-print inputs.shape
+      inputs.append([1.0, n_classes, n_examples, max_features])
+      best_threshold_values.append(best_threshold)
+      best_threshold_prcts.append(best_threshold_prct)
 
-print best_thresholds
-best_thresholds = np.array(best_thresholds)
-target_values = np.log(100 * best_thresholds)
-print target_values.shape
+X = np.array(inputs)
+print X.shape
 
-result = np.linalg.lstsq(inputs, target_values)
-for elt in result:
-  print elt
+best_threshold_prcts = np.array(best_threshold_prcts)
+best_threshold_values = np.array(best_threshold_values)
+
+
+result = np.linalg.lstsq(inputs, best_threshold_values)
+print "Regression coefficients:", result[0]
+print "Regression residual:", result[1], "RMSE:", np.sqrt(result[1] / len(best_threshold_values)
+print "Rank:", result[2]
+
+
+import socket 
+csv_filename = "threshold_results_" + socket.gethostname()
+with open(csv_filename, 'w') as csvfile:
+    for i, input_tuple in enumerate(inputs):
+      csvfile.write(str(input_tuple[1:]))
+      csvfile.write("," + str(best_threshold_values[i]))
+      csvfile.write("," + str(best_threshold_prcts[i]))
+      csvfile.write("\n")
+
