@@ -43,8 +43,9 @@ def turn_to_leaf(nid, start_idx, n_samples, idx, values_idx_array, values_si_idx
   values_si_idx_array[nid] = idx
 
 @jit
-def bfs_loop(queue_size, n_nodes, max_features, new_idx_array, idx_array, new_si_idx_array, new_nid_array, left_children, right_children,
-    feature_idx_array, feature_threshold_array, nid_array, imp_min, min_split, feature_idx, si_idx_array, threshold, min_samples_split,
+def bfs_loop(queue_size, n_nodes, max_features, new_idx_array, idx_array, new_si_idx_array, 
+    new_nid_array, left_children, right_children, feature_idx_array, feature_threshold_array, 
+    nid_array, imp_min, min_split, feature_idx, si_idx_array, threshold, min_samples_split,
     values_idx_array, values_si_idx_array):
   new_queue_size = 0
 
@@ -400,10 +401,11 @@ class RandomClassifierTree(RandomBaseTree):
     si_idx_array = self.si_idx_array 
 
     #start_timer("bfs loop")
-    self.n_nodes, self.queue_size, self.idx_array, self.si_idx_array, self.nid_array = bfs_loop(self.queue_size, self.n_nodes, 
-        self.max_features, new_idx_array, idx_array, new_si_idx_array, new_nid_array, left_children, right_children,
-        feature_idx_array, feature_threshold_array, nid_array, imp_min, min_split, feature_idx, si_idx_array, threshold,
-        self.min_samples_split, self.values_idx_array, self.values_si_idx_array)
+    self.n_nodes, self.queue_size, self.idx_array, self.si_idx_array, self.nid_array = bfs_loop(self.queue_size, 
+        self.n_nodes, self.max_features, new_idx_array, idx_array, 
+        new_si_idx_array, new_nid_array, left_children, right_children, feature_idx_array, 
+        feature_threshold_array, nid_array, imp_min, min_split, feature_idx, si_idx_array, 
+        threshold, self.min_samples_split, self.values_idx_array, self.values_si_idx_array)
     #end_timer("bfs loop")
 
     self.n_nodes = int(self.n_nodes)

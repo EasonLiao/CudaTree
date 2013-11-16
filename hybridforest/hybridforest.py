@@ -10,8 +10,10 @@ import atexit
 from cudatree import util
 from PyWiseRF import WiseRF
 
-def cpu_build(cpu_classifier, X, Y, n_estimators, bootstrap, max_features, n_jobs, remain_trees, result_queue, lock):
-  """ Build some trees on cpu, the cpu classifier shoud be the class(sklearn/WiseRF) which actually construct the forest."""
+def cpu_build(cpu_classifier, X, Y, n_estimators, bootstrap, max_features, n_jobs, 
+    remain_trees, result_queue, lock):
+  #Build some trees on cpu, the cpu classifier shoud be the class(sklearn/WiseRF) 
+  #which actually construct the forest.
   forests = list()
   if max_features == None:
     max_features = "auto"
@@ -45,10 +47,12 @@ def cleanup(proc):
 
 class RandomForestClassifier(object):
   """
-  This RandomForestClassifier uses both CudaTree and cpu implementation of RandomForestClassifier(default is sklearn)
-  to construct random forest. The reason is that CudaTree only use one CPU core, the main computation is done at
-  GPU side, so in order to get maximum utilization of the system, we can train one CudaTree random forest with
-  GPU and one core of CPU, and simultaneously we construct some trees on other cores by sklearn.
+  This RandomForestClassifier uses both CudaTree and cpu implementation of 
+  RandomForestClassifier(default is sklearn) to construct random forest. The reason 
+  is that CudaTree only use one CPU core, the main computation is done at GPU side, 
+  so in order to get maximum utilization of the system, we can train one CudaTree random 
+  forest with GPU and one core of CPU, and simultaneously we construct some trees on other 
+  cores by sklearn.
   """
   def __init__(self, n_estimators = 10, n_jobs = -1, max_features = None, bootstrap = True, cpu_classifier = skRF):
     """Construce random forest on GPU and multicores.
