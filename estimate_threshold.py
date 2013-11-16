@@ -88,6 +88,6 @@ print "Ridge regression coef", ridge.coef_
 print "Ridge regression alpha", ridge.alpha_
 
 pred = ridge.predict(X)
-sse = np.sum( (pred - best_threshold_values) ** 2)
+sse = np.sum( (pred - Y) ** 2)
 print "Ridge residual", sse
 print "Ridge RMSE", np.sqrt(sse / n)
