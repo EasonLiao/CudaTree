@@ -8,7 +8,7 @@ best_threshold_prcts = []
 best_threshold_values = []
 
 
-all_classes = [2, 10, 50, 100]
+all_classes = [2, 10, 50, 100, 500]
 all_examples = [2*10**4, 5*10**4, 25*10**4]
 all_features = [8, 16, 32, 64, 512]
 thresholds = [1000, 2000, 3000, 4000, 5000, 10000,15000,20000,25000,30000]
@@ -58,12 +58,12 @@ for n_classes in all_classes:
 
 X = np.array(inputs)
 print "input shape", X.shape
-# n_samples / 1000
-X[:, 2] /= 1000.0
+
+
 
 best_threshold_prcts = np.array(best_threshold_prcts)
 best_threshold_values = np.array(best_threshold_values)
-Y = best_threshold_values / 1000.0
+Y = best_threshold_values
 
 lstsq_result = np.linalg.lstsq(X, Y)
 print "Regression coefficients:", lstsq_result[0]
@@ -78,7 +78,6 @@ with open(csv_filename, 'w') as csvfile:
       csvfile.write("," + str(best_threshold_values[i]))
       csvfile.write("," + str(best_threshold_prcts[i]))
       csvfile.write("\n")
-
 
 import sklearn
 import sklearn.linear_model
