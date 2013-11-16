@@ -2,6 +2,7 @@ import cPickle
 import numpy as np
 from os import path
 from sklearn.datasets import load_digits, load_iris, load_diabetes, fetch_covtype 
+import sklearn
 
 _img_data = None
 
@@ -58,6 +59,10 @@ def load_data(ds_name):
     data = np.load(data_dir + "data.npy")
     x_train = data[:, :-1]
     y_train = data[:, -1]
+  elif ds_name == "poker":
+    data = sklearn.datasets.fetch_mldata("poker")
+    x_train = data.data
+    y_train = data.target
   else:
     assert False, "Unrecognized data set name %s" % ds_name
   return x_train, y_train

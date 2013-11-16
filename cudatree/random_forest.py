@@ -214,7 +214,7 @@ class RandomForestClassifier(object):
       bfs_threshold = min(bfs_threshold, min(n_samples, 25000))
       # ...or too small
       bfs_threshold = max(bfs_threshold, 2000)
-    
+
     if self.verbose: 
       print "bsf_threadshold : %d; bootstrap : %r; min_samples_split : %d" % (bfs_threshold, self.bootstrap, 
           self.min_samples_split)
