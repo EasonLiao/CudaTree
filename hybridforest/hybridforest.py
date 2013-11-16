@@ -8,11 +8,10 @@ import multiprocessing
 from multiprocessing import Value, Lock, cpu_count
 import atexit
 from cudatree import util
-from PyWiseRF import WiseRF
 
 def cpu_build(cpu_classifier, X, Y, n_estimators, bootstrap, max_features, n_jobs, 
     remain_trees, result_queue, lock):
-  #Build some trees on cpu, the cpu classifier shoud be the class(sklearn/WiseRF) 
+  #Build some trees on cpu, the cpu classifier should be the class(sklearn/WiseRF) 
   #which actually construct the forest.
   forests = list()
   if max_features == None:
@@ -52,7 +51,7 @@ class RandomForestClassifier(object):
   is that CudaTree only use one CPU core, the main computation is done at GPU side, 
   so in order to get maximum utilization of the system, we can train one CudaTree random 
   forest with GPU and one core of CPU, and simultaneously we construct some trees on other 
-  cores by sklearn.
+  cores by other multicore implementaion of random forest.
   """
   def __init__(self, n_estimators = 10, n_jobs = -1, max_features = None, bootstrap = True, cpu_classifier = skRF):
     """Construce random forest on GPU and multicores.
@@ -82,13 +81,15 @@ class RandomForestClassifier(object):
     -------
     None
     """ 
+    assert hasattr(cpu_classifier, "fit"), "cpu classifier must support fit method."
+    assert hasattr(cpu_classifier, "predict_proba"), "cpu classifier must support predict proba method."
     self.n_estimators = n_estimators
     self.max_features = max_features
     self.bootstrap = bootstrap
     self._sk_forests = None
     self._cuda_forest = None
     self._cpu_classifier = cpu_classifier
-
+    
     if n_jobs == -1:
       n_jobs = cpu_count()
     self.n_jobs = n_jobs
