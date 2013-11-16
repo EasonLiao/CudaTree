@@ -18,7 +18,8 @@ log_fatal = logging.fatal
 _kernel_cache = {}
 _module_cache = {}
 
-kernels_dir = path.dirname(os.path.realpath(__file__)) + "/cuda_kernels/"
+kernels_dir = path.dirname(os.path.realpath(__file__)) +\
+                "/cuda_kernels/"
 
 def compile_module(module_file, params):
   module_file = kernels_dir + module_file
@@ -83,7 +84,11 @@ def mk_kernel(params, func_name, kernel_file, prepare_args = None):
     _kernel_cache[key] = fn
     return fn
 
-def mk_tex_kernel(params, func_name, tex_name, kernel_file, prepare_args = None):
+def mk_tex_kernel(params, 
+                  func_name, 
+                  tex_name, 
+                  kernel_file, 
+                  prepare_args = None):
   kernel_file = kernels_dir + kernel_file
   key = (params, kernel_file, prepare_args)
   if key in _kernel_cache:
@@ -100,7 +105,8 @@ def mk_tex_kernel(params, func_name, tex_name, kernel_file, prepare_args = None)
     return fn, tex
 
 def test_diff(x, y):
-  """ Test how many elements betweenn array x and y are different. """
+  """ Test how many elements betweenn array 
+  x and y are different. """
   assert isinstance(x, np.ndarray)
   assert isinstance(y, np.ndarray)
   assert x.size == y.size
@@ -120,7 +126,9 @@ def end_timer(name):
   total_times[name] = total
 
 def show_timings(limit = 100):
-  tables = sorted(total_times.iteritems(),  key = operator.itemgetter(1), reverse = True) 
+  tables = sorted(total_times.iteritems(), 
+                  key = operator.itemgetter(1), 
+                  reverse = True) 
   idx = 0
   print "---------Timings---------"
   for key, value in tables:

@@ -13,10 +13,13 @@ class BaseTree(object):
 
   def print_tree(self):
     def recursive_print(idx, depth):
-      if self.left_children[idx] == 0 and self.right_children[idx] == 0:
-        print "[LEAF] Depth: %s, Value: %s" % (depth, self.values_array[idx])
+      if self.left_children[idx] == 0 and \
+          self.right_children[idx] == 0:
+        print "[LEAF] Depth: %s, Value: %s" % \
+            (depth, self.values_array[idx])
       else:
-        print "[NODE] Depth: %s, Feature: %s, Threshold: %f" % (depth, self.feature_idx_array[idx], 
+        print "[NODE] Depth: %s, Feature: %s, Threshold: %f" %\
+            (depth, self.feature_idx_array[idx], 
             self.feature_threshold_array[idx])
         recursive_print(self.left_children[idx], depth + 1)
         recursive_print(self.right_children[idx], depth + 1) 
@@ -58,7 +61,8 @@ class BaseTree(object):
     value_gpu = gpuarray.to_gpu(self.values_array)
     feature_gpu = gpuarray.to_gpu(self.feature_idx_array)
     
-    predict_res_gpu = gpuarray.zeros(n_predict, dtype=self.dtype_labels)
+    predict_res_gpu = gpuarray.zeros(n_predict, \
+                                    dtype=self.dtype_labels)
     grid = get_grid_size(n_predict)
     
     self.predict_kernel.prepared_call(

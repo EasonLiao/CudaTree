@@ -1,7 +1,7 @@
 import cPickle
 import numpy as np
 from os import path
-from sklearn.datasets import load_digits, load_iris, load_diabetes, fetch_covtype 
+from sklearn.datasets import load_digits,load_iris,load_diabetes,fetch_covtype 
 import sklearn
 
 _img_data = None

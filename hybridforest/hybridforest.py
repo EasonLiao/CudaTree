@@ -9,10 +9,19 @@ from multiprocessing import Value, Lock, cpu_count
 import atexit
 from cudatree import util
 
-def cpu_build(cpu_classifier, X, Y, n_estimators, bootstrap, max_features, n_jobs, 
-    remain_trees, result_queue, lock):
-  #Build some trees on cpu, the cpu classifier should be the class(sklearn/WiseRF) 
-  #which actually construct the forest.
+def cpu_build(cpu_classifier, 
+              X, 
+              Y, 
+              n_estimators, 
+              bootstrap, 
+              max_features, 
+              n_jobs, 
+              remain_trees, 
+              result_queue, lock):
+  """
+  Build some trees on cpu, the cpu classifier should be cpu 
+  implementation of random forest classifier.
+  """
   forests = list()
   if max_features == None:
     max_features = "auto"
@@ -30,7 +39,8 @@ def cpu_build(cpu_classifier, X, Y, n_estimators, bootstrap, max_features, n_job
     lock.release()
 
     util.log_info("%s got %s jobs.", classifier_name, n_jobs)
-    f = cpu_classifier(n_estimators = n_jobs, n_jobs = n_jobs, bootstrap = bootstrap, max_features = max_features)
+    f = cpu_classifier(n_estimators = n_jobs, n_jobs = n_jobs, 
+        bootstrap = bootstrap, max_features = max_features)
     f.fit(X, Y)
     forests.append(f)
 
@@ -46,14 +56,21 @@ def cleanup(proc):
 
 class RandomForestClassifier(object):
   """
-  This RandomForestClassifier uses both CudaTree and cpu implementation of 
-  RandomForestClassifier(default is sklearn) to construct random forest. The reason 
-  is that CudaTree only use one CPU core, the main computation is done at GPU side, 
-  so in order to get maximum utilization of the system, we can train one CudaTree random 
-  forest with GPU and one core of CPU, and simultaneously we construct some trees on other 
-  cores by other multicore implementaion of random forest.
+  This RandomForestClassifier uses both CudaTree and cpu 
+  implementation of RandomForestClassifier(default is sklearn) 
+  to construct random forest. The reason is that CudaTree only 
+  use one CPU core, the main computation is done at GPU side, 
+  so in order to get maximum utilization of the system, we can 
+  train one CudaTree random forest with GPU and one core of CPU,
+  and simultaneously we construct some trees on other cores by 
+  other multicore implementaion of random forest.
   """
-  def __init__(self, n_estimators = 10, n_jobs = -1, max_features = None, bootstrap = True, cpu_classifier = skRF):
+  def __init__(self, 
+              n_estimators = 10, 
+              n_jobs = -1, 
+              max_features = None, 
+              bootstrap = True, 
+              cpu_classifier = skRF):
     """Construce random forest on GPU and multicores.
 
     Parameters
@@ -81,8 +98,11 @@ class RandomForestClassifier(object):
     -------
     None
     """ 
-    assert hasattr(cpu_classifier, "fit"), "cpu classifier must support fit method."
-    assert hasattr(cpu_classifier, "predict_proba"), "cpu classifier must support predict proba method."
+    assert hasattr(cpu_classifier, "fit"),\
+              "cpu classifier must support fit method."
+    assert hasattr(cpu_classifier, "predict_proba"),\
+              "cpu classifier must support predict proba method."
+    
     self.n_estimators = n_estimators
     self.max_features = max_features
     self.bootstrap = bootstrap
@@ -96,9 +116,9 @@ class RandomForestClassifier(object):
 
 
   def _cuda_fit(self, X, Y, bfs_threshold, remain_trees, lock):
-    self._cuda_forest = cdRF(n_estimators = self.n_estimators, bootstrap = self.bootstrap, 
-        max_features = self.max_features) 
-    
+    self._cuda_forest = cdRF(n_estimators = self.n_estimators,
+                            bootstrap = self.bootstrap, 
+                            max_features = self.max_features) 
     #allocate resource
     self._cuda_forest.fit_init(X, Y)
     f = self._cuda_forest
@@ -116,10 +136,11 @@ class RandomForestClassifier(object):
       lock.release()
       
       #util.log_info("Cudatree got 1 job.")
-      tree = RandomClassifierTree(f.samples_gpu, f.labels_gpu, f.compt_table, f.dtype_labels, 
-          f.dtype_samples, f.dtype_indices, f.dtype_counts, f.n_features, f.stride, 
-          f.n_labels, f.COMPUTE_THREADS_PER_BLOCK, f.RESHUFFLE_THREADS_PER_BLOCK, 
-          f.max_features, f.min_samples_split, bfs_threshold, f.debug, f)   
+      tree = RandomClassifierTree(f.samples_gpu, f.labels_gpu, f.compt_table, 
+          f.dtype_labels, f.dtype_samples, f.dtype_indices, f.dtype_counts, 
+          f.n_features, f.stride, f.n_labels, f.COMPUTE_THREADS_PER_BLOCK, 
+          f.RESHUFFLE_THREADS_PER_BLOCK, f.max_features, f.min_samples_split, 
+          bfs_threshold, f.debug, f)   
       
       si, n_samples = f._get_sorted_indices(f.sorted_indices)
       tree.fit(f.samples, f.target, si, n_samples)
@@ -139,8 +160,18 @@ class RandomForestClassifier(object):
     self.n_classes = np.unique(Y).size
 
     #Start a new process to do sklearn random forest
-    p = multiprocessing.Process(target = cpu_build, args = (self._cpu_classifier, X, Y, self.n_estimators, 
-      self.bootstrap, self.max_features, self.n_jobs - 1, remain_trees, result_queue, lock))
+    p = multiprocessing.Process(target = cpu_build, 
+                                args = (self._cpu_classifier,
+                                          X, 
+                                          Y, 
+                                          self.n_estimators, 
+                                          self.bootstrap, 
+                                          self.max_features, 
+                                          self.n_jobs - 1, 
+                                          remain_trees, 
+                                          result_queue, 
+                                          lock)
+                                )
     
     #kill the child process when program aborts
     atexit.register(cleanup, p)

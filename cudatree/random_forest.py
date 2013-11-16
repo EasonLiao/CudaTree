@@ -29,7 +29,13 @@ class RandomForestClassifier(object):
   MAX_BLOCK_PER_FEATURE = 50
   MAX_BLOCK_BFS = 10000
   
-  def __init__(self, n_estimators = 10, max_features = None, min_samples_split = 1, bootstrap = True, verbose = False, debug = False):
+  def __init__(self, 
+              n_estimators = 10, 
+              max_features = None, 
+              min_samples_split = 1, 
+              bootstrap = True, 
+              verbose = False, 
+              debug = False):
     """Construce multiple trees in the forest.
 
     Parameters
@@ -92,7 +98,8 @@ class RandomForestClassifier(object):
     self.mark_table.bind_to_texref_ext(tex_ref)
 
   def _get_sorted_indices(self, sorted_indices):
-    """ Generate sorted indices, if bootstrap == False, then the sorted indices is as same as original sorted indices """
+    """ Generate sorted indices, if bootstrap == False, 
+    then the sorted indices is as same as original sorted indices """
     
     sorted_indices_gpu_original = self.sorted_indices_gpu.copy()
 
@@ -100,7 +107,8 @@ class RandomForestClassifier(object):
       return sorted_indices_gpu_original, sorted_indices.shape[1]
     else:
       sorted_indices_gpu = gpuarray.empty((self.n_features, self.stride), dtype = self.dtype_indices)
-      random_sample_idx = np.unique(np.random.randint(0, self.stride, size = self.stride)).astype(self.dtype_indices)
+      random_sample_idx = np.unique(np.random.randint(
+        0, self.stride, size = self.stride)).astype(self.dtype_indices)
       random_sample_idx_gpu = gpuarray.to_gpu(random_sample_idx)
       n_samples = random_sample_idx.size
       
@@ -289,16 +297,16 @@ class RandomForestClassifier(object):
       bfs_threshold = max(bfs_threshold, 2000)
 
     if self.verbose: 
-      print "bsf_threadshold : %d; bootstrap : %r; min_samples_split : %d" % (bfs_threshold, self.bootstrap, 
-          self.min_samples_split)
-      print "n_samples : %d; n_features : %d; n_labels : %d; max_features : %d" % (self.stride, self.n_features, 
-              self.n_labels, self.max_features)
+      print "bsf_threadshold : %d; bootstrap : %r; min_samples_split : %d" % (bfs_threshold, 
+          self.bootstrap,  self.min_samples_split)
+      print "n_samples : %d; n_features : %d; n_labels : %d; max_features : %d" % (self.stride, 
+          self.n_features, self.n_labels, self.max_features)
 
     self.forest = [RandomClassifierTree(self.samples_gpu, self.labels_gpu, self.compt_table, 
       self.dtype_labels,self.dtype_samples, self.dtype_indices, self.dtype_counts,
       self.n_features, self.stride, self.n_labels, self.COMPUTE_THREADS_PER_BLOCK,
-      self.RESHUFFLE_THREADS_PER_BLOCK, self.max_features, self.min_samples_split, bfs_threshold, self.debug, 
-      self) for i in xrange(self.n_estimators)]   
+      self.RESHUFFLE_THREADS_PER_BLOCK, self.max_features, self.min_samples_split, 
+      bfs_threshold, self.debug, self) for i in xrange(self.n_estimators)]   
    
     for i, tree in enumerate(self.forest):
       si, n_samples = self._get_sorted_indices(self.sorted_indices)
@@ -369,8 +377,9 @@ class RandomForestClassifier(object):
     n_shf_threads = self.RESHUFFLE_THREADS_PER_BLOCK
     
     """ DFS module """
-    dfs_module = compile_module("dfs_module.cu", (n_threads, n_shf_threads, n_labels, ctype_samples,
-      ctype_labels, ctype_counts, ctype_indices, self.MAX_BLOCK_PER_FEATURE, self.debug))
+    dfs_module = compile_module("dfs_module.cu", (n_threads, n_shf_threads, n_labels, 
+      ctype_samples, ctype_labels, ctype_counts, ctype_indices, self.MAX_BLOCK_PER_FEATURE, 
+      self.debug))
     
     const_stride = dfs_module.get_global("stride")[0]
     driver.memcpy_htod(const_stride, np.uint32(self.stride))

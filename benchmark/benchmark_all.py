@@ -6,15 +6,10 @@ import numpy as np
 import math
 from PyWiseRF import WiseRF
 
-global_bfs_threshold = None
 debug = False
 verbose = False
 bootstrap = False
 n_estimators = 100
-
-def best_threshold_prct(n_classes, max_features):
-  print n_classes, max_features
-  return 6058 + 17 * n_classes - 147 * max_features
 
 def benchmark_cuda(dataset, bfs_threshold = None):
   x_train, y_train = load_data(dataset)
@@ -40,28 +35,22 @@ def benchmark_hybrid(dataset, bfs_threshold = None):
 
   with timer("%s benchmark hybrid (bfs_threshold = %s)" % (dataset, bfs_threshold)): 
     forest = hybridForest(n_estimators = n_estimators, bootstrap = bootstrap, 
-        max_features = None)
+        max_features = None, cpu_classifier = WiseRF)
     forest.fit(x_train, y_train, bfs_threshold = bfs_threshold)
   forest = None
 
-#benchmark_hybrid("pamap", None)
+benchmark_hybrid("covtype", None)
 #benchmark_cuda("pamap", None)
 #benchmark_cuda("cf100", 10000)
 #benchmark_cuda("inet", 1000)
 #benchmark_hybrid("inet", 5000)
-#benchmark_hybrid("covtype", global_bfs_threshold)
-#benchmark_hybrid("kdd", global_bfs_threshold)
-#benchmark_hybrid("covtype", global_bfs_threshold)
-#benchmark_hybrid("poker", global_bfs_threshold)
 """
-global_bfs_threshold = 50000
 benchmark_cuda("cf100")
 benchmark_cuda("kdd")
 benchmark_cuda("covtype")
 benchmark_cuda("cf10")
 """
 """
-global_bfs_threshold = 10000
 benchmark_hybrid("cf100")
 benchmark_hybrid("kdd")
 benchmark_hybrid("covtype")

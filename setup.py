@@ -1,10 +1,6 @@
 #!/usr/bin/python
 from setuptools import setup, find_packages, Extension
 import cudatree
-#from Cython.Distutils import build_ext
-
-
-#ext_modules = [Extension("cuda_random_decisiontree_small", ["cudatree/cuda_random_decisiontree_small.pyx"])]
 
 setup(
     name = "cudatree",
@@ -43,8 +39,6 @@ CudaTree is writen for Python 2.7 and depends on:
     packages = find_packages() + ['cudatree.test'],
     package_dir = {'cudatree.test' : './test'},
     package_data = {'cudatree' : ['cuda_kernels/*.cu']},
-    #ext_modules = ext_modules,
-    #cmdclass = {'build_ext' : build_ext},
     url = "https://github.com/EasonLiao/CudaTree"
     install_requires = [
         'numpy',
