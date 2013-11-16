@@ -8,12 +8,17 @@ import multiprocessing
 from multiprocessing import Value, Lock, cpu_count
 import atexit
 from cudatree import util
+from PyWiseRF import WiseRF
 
-def sklearn_build(X, Y, n_estimators, bootstrap, max_features, n_jobs, remain_trees, result_queue, lock):
+def cpu_build(cpu_classifier, X, Y, n_estimators, bootstrap, max_features, n_jobs, remain_trees, result_queue, lock):
+  """ Build some trees on cpu, the cpu classifier shoud be the class(sklearn/WiseRF) which actually construct the forest."""
   forests = list()
   if max_features == None:
     max_features = "auto"
   
+  Y = Y.astype(np.uint16) 
+  classifier_name = cpu_classifier.__name__
+
   while True:
     lock.acquire()
     if remain_trees.value < 2 * n_jobs:
@@ -23,13 +28,13 @@ def sklearn_build(X, Y, n_estimators, bootstrap, max_features, n_jobs, remain_tr
     remain_trees.value -= n_jobs
     lock.release()
 
-    #util.log_info("sklearn got %s jobs.", n_jobs)
-    f = skRF(n_estimators = n_jobs, n_jobs = n_jobs, bootstrap = bootstrap, max_features = max_features)
+    util.log_info("%s got %s jobs.", classifier_name, n_jobs)
+    f = cpu_classifier(n_estimators = n_jobs, n_jobs = n_jobs, bootstrap = bootstrap, max_features = max_features)
     f.fit(X, Y)
     forests.append(f)
 
   result_queue.put(forests)
-  #util.log_info("sklearn's job done")
+  util.log_info("%s's job done", classifier_name)
 
 
 #kill the child process if any
@@ -40,17 +45,46 @@ def cleanup(proc):
 
 class RandomForestClassifier(object):
   """
-  This RandomForestClassifier uses both CudaTree and sklearn.ensemble.RandomForestClassifier
+  This RandomForestClassifier uses both CudaTree and cpu implementation of RandomForestClassifier(default is sklearn)
   to construct random forest. The reason is that CudaTree only use one CPU core, the main computation is done at
   GPU side, so in order to get maximum utilization of the system, we can train one CudaTree random forest with
   GPU and one core of CPU, and simultaneously we construct some trees on other cores by sklearn.
   """
-  def __init__(self, n_estimators = 10, n_jobs = -1, max_features = None, bootstrap = True):
+  def __init__(self, n_estimators = 10, n_jobs = -1, max_features = None, bootstrap = True, cpu_classifier = skRF):
+    """Construce random forest on GPU and multicores.
+
+    Parameters
+    ----------
+    n_estimators : integer, optional (default=10)
+        The number of trees in the forest.
+
+    max_features : int or None, optional (default="log2(n_features)")
+        The number of features to consider when looking for the best split:
+          - If None, then `max_features=log2(n_features)`.
+    
+    bootstrap : boolean, optional (default=True)
+        Whether use bootstrap samples
+    
+    n_jobs : int (default=-1)
+        How many cores to use when construct random forest.
+          - If -1, them use number of cores you CPU has.
+    
+    cpu_classifier : class(default=sklearn.ensemble.RandomForestClassifier)
+        Which random forest classifier class to use when construct trees on CPU.
+          The default is sklearn.ensemble.RandomForestClassifier. You can also pass 
+          some other classes like WiseRF.
+
+    Returns
+    -------
+    None
+    """ 
     self.n_estimators = n_estimators
     self.max_features = max_features
     self.bootstrap = bootstrap
     self._sk_forests = None
     self._cuda_forest = None
+    self._cpu_classifier = cpu_classifier
+
     if n_jobs == -1:
       n_jobs = cpu_count()
     self.n_jobs = n_jobs
@@ -100,7 +134,7 @@ class RandomForestClassifier(object):
     self.n_classes = np.unique(Y).size
 
     #Start a new process to do sklearn random forest
-    p = multiprocessing.Process(target = sklearn_build, args = (X, Y, self.n_estimators, 
+    p = multiprocessing.Process(target = cpu_build, args = (self._cpu_classifier, X, Y, self.n_estimators, 
       self.bootstrap, self.max_features, self.n_jobs - 1, remain_trees, result_queue, lock))
     
     #kill the child process when program aborts
@@ -133,7 +167,6 @@ class RandomForestClassifier(object):
     if hasattr(self._cuda_forest, "compt_table"):
       res = convert_result(self._cuda_forest.compt_table, res)
     return res
-
 
   def score(self, X, Y):
     return np.mean(self.predict(X) == Y)

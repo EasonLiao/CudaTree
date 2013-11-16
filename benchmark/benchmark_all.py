@@ -4,8 +4,9 @@ from cudatree import util
 from hybridforest import RandomForestClassifier as hybridForest
 import numpy as np
 import math
+from PyWiseRF import WiseRF
 
-global_bfs_threshold = 2000
+global_bfs_threshold = None
 debug = False
 verbose = False
 bootstrap = False
@@ -34,31 +35,24 @@ def benchmark_hybrid(dataset, bfs_threshold = None):
   
   #Just use this forest to compile the code.
   throw_away = hybridForest(n_estimators = 1, bootstrap = bootstrap,  
-        max_features = None)
+        max_features = None, cpu_classifier = WiseRF)
   throw_away.fit(x_train, y_train, bfs_threshold = bfs_threshold)
 
-  with timer("%s benchmark hybrid (bfs_threshold = %d)" % (dataset, bfs_threshold)): 
+  with timer("%s benchmark hybrid (bfs_threshold = %s)" % (dataset, bfs_threshold)): 
     forest = hybridForest(n_estimators = n_estimators, bootstrap = bootstrap, 
         max_features = None)
     forest.fit(x_train, y_train, bfs_threshold = bfs_threshold)
   forest = None
 
-
-"""
-benchmark_cuda("cf100")
-benchmark_cuda("kdd")
-benchmark_cuda("covtype")
-benchmark_cuda("cf10")
-"""
-global_bfs_threshold = 10000
-"""
-benchmark_hybrid("cf100", global_bfs_threshold)
-benchmark_hybrid("kdd", global_bfs_threshold)
-benchmark_hybrid("covtype", global_bfs_threshold)
-benchmark_hybrid("cf10", global_bfs_threshold)
-"""
-benchmark_hybrid("poker", global_bfs_threshold)
-
+#benchmark_hybrid("pamap", None)
+#benchmark_cuda("pamap", None)
+#benchmark_cuda("cf100", 10000)
+#benchmark_cuda("inet", 1000)
+#benchmark_hybrid("inet", 5000)
+#benchmark_hybrid("covtype", global_bfs_threshold)
+#benchmark_hybrid("kdd", global_bfs_threshold)
+#benchmark_hybrid("covtype", global_bfs_threshold)
+#benchmark_hybrid("poker", global_bfs_threshold)
 """
 global_bfs_threshold = 50000
 benchmark_cuda("cf100")

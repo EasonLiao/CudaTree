@@ -63,6 +63,10 @@ def load_data(ds_name):
     data = sklearn.datasets.fetch_mldata("poker")
     x_train = data.data
     y_train = data.target
+  elif ds_name == "pamap":
+    data = np.load(data_dir + "pamap.npz")
+    x_train = data['x']
+    y_train = data['y']
   else:
     assert False, "Unrecognized data set name %s" % ds_name
   return x_train, y_train

@@ -121,15 +121,88 @@ class RandomForestClassifier(object):
                 self.stride)
       
       return sorted_indices_gpu, n_samples 
-
   
+  def _allocate_arrays(self):
+    #allocate gpu arrays and numpy arrays.
+    if self.max_features < 4:
+      imp_size = 4
+    else:
+      imp_size = self.max_features
+    
+    #allocate gpu arrays
+    self.impurity_left = gpuarray.empty(imp_size, dtype = np.float32)
+    self.impurity_right = gpuarray.empty(self.max_features, dtype = np.float32)
+    self.min_split = gpuarray.empty(self.max_features, dtype = self.dtype_counts)
+    self.label_total = gpuarray.empty(self.n_labels, self.dtype_indices)  
+    self.label_total_2d = gpuarray.zeros(self.max_features * (self.MAX_BLOCK_PER_FEATURE + 1) * self.n_labels, 
+        self.dtype_indices)
+    self.impurity_2d = gpuarray.empty(self.max_features * self.MAX_BLOCK_PER_FEATURE * 2, np.float32)
+    self.min_split_2d = gpuarray.empty(self.max_features * self.MAX_BLOCK_PER_FEATURE, self.dtype_counts)
+    self.features_array_gpu = gpuarray.empty(self.n_features, np.uint16)
+    self.mark_table = gpuarray.empty(self.stride, np.uint8) 
+
+    #allocate numpy arrays
+    self.idx_array = np.zeros(2 * self.n_samples, dtype = np.uint32)
+    self.si_idx_array = np.zeros(self.n_samples, dtype = np.uint8)
+    self.nid_array = np.zeros(self.n_samples, dtype = np.uint32)
+    self.values_idx_array = np.zeros(2 * self.n_samples, dtype = self.dtype_indices)
+    self.values_si_idx_array = np.zeros(2 * self.n_samples, dtype = np.uint8)
+    self.threshold_value_idx = np.zeros(2, self.dtype_indices)
+    self.min_imp_info = driver.pagelocked_zeros(4, dtype = np.float32)  
+    self.features_array = driver.pagelocked_zeros(self.n_features, dtype = np.uint16)
+    self.features_array[:] = np.arange(self.n_features, dtype = np.uint16)
+
+
+  def _release_arrays(self):
+    #relase gpu arrays
+    self.impurity_left = None
+    self.impurity_right = None
+    self.min_split = None
+    self.label_total = None
+    #self.sorted_indices_gpu = None
+    #self.sorted_indices_gpu_ = None
+    self.label_total_2d = None
+    self.min_split_2d = None
+    self.impurity_2d = None
+    self.feature_mask = None
+    self.features_array_gpu = None
+    
+    #Release kernels
+    self.fill_kernel = None
+    self.scan_reshuffle_tex = None 
+    self.scan_total_kernel = None
+    self.comput_label_loop_rand_kernel = None
+    self.find_min_kernel = None
+    self.scan_total_bfs = None
+    self.comput_bfs = None
+    self.fill_bfs = None
+    self.reshuffle_bfs = None
+    self.reduce_bfs_2d = None
+    self.comput_bfs_2d = None
+    #self.predict_kernel = None
+    self.get_thresholds = None
+    self.scan_reduce = None
+    self.mark_table = None
+    
+    #Release numpy arrays
+    self.idx_array = None
+    self.si_idx_array = None
+    self.nid_array = None
+    self.values_idx_array = None
+    self.values_si_idx_array = None
+    self.threshold_value_idx = None
+    self.min_imp_info = None
+    self.features_array = None
+
+
   def fit_init(self, samples, target):
     assert isinstance(samples, np.ndarray)
     assert isinstance(target, np.ndarray)
     assert samples.size / samples[0].size == target.size
     target = target.copy()
     self.__compact_labels(target)
-
+    
+    self.n_samples = len(target)
     self.n_labels = self.compt_table.size 
     self.dtype_indices = get_best_dtype(target.size)
 
@@ -156,13 +229,13 @@ class RandomForestClassifier(object):
     
     sorted_indices = np.argsort(samples).astype(self.dtype_indices)
     self.sorted_indices_gpu = gpuarray.to_gpu(sorted_indices)
-    self.mark_table = gpuarray.empty(self.stride, np.uint8) 
       
     if self.max_features is None:
       self.max_features = int(math.ceil(np.sqrt(self.n_features)))
     
+    self._allocate_arrays()
     self.__compile_kernels()
-    
+       
     if self.bootstrap:
       self.__init_bootstrap_kernel()
     
@@ -180,9 +253,9 @@ class RandomForestClassifier(object):
     self.samples_gpu = None
     self.labels_gpu = None
     self.sorted_indices_gpu = None
-    self.mark_table = None
     self.sorted_indices = None
-
+    self._release_arrays()
+   
 
   def fit(self, samples, target, bfs_threshold = None):
     """Construce multiple trees in the forest.

@@ -191,19 +191,15 @@ class RandomClassifierTree(RandomBaseTree):
     cuda.memcpy_htod(const_sorted_indices_, np.uint64(self.sorted_indices_gpu_.ptr)) 
 
   def __allocate_gpuarrays(self):
-    if self.max_features < 4:
-      imp_size = 4
-    else:
-      imp_size = self.max_features
-    self.impurity_left = gpuarray.empty(imp_size, dtype = np.float32)
-    self.impurity_right = gpuarray.empty(self.max_features, dtype = np.float32)
-    self.min_split = gpuarray.empty(self.max_features, dtype = self.dtype_counts)
-    self.label_total = gpuarray.empty(self.n_labels, self.dtype_indices)  
-    self.label_total_2d = gpuarray.zeros(self.max_features * (self.MAX_BLOCK_PER_FEATURE + 1) * self.n_labels, self.dtype_indices)
-    self.impurity_2d = gpuarray.empty(self.max_features * self.MAX_BLOCK_PER_FEATURE * 2, np.float32)
-    self.min_split_2d = gpuarray.empty(self.max_features * self.MAX_BLOCK_PER_FEATURE, self.dtype_counts)
-    # self.feature_mask = gpuarray.empty(self.n_features, np.uint8)
-    self.features_array_gpu = gpuarray.empty(self.n_features, np.uint16)
+    f = self.forest
+    self.impurity_left = f.impurity_left 
+    self.impurity_right = f.impurity_right 
+    self.min_split = f.min_split 
+    self.label_total = f.label_total  
+    self.label_total_2d = f.label_total_2d
+    self.impurity_2d = f.impurity_2d 
+    self.min_split_2d = f.min_split_2d 
+    self.features_array_gpu = f.features_array_gpu 
 
   def __release_gpuarrays(self):
     self.impurity_left = None
@@ -236,22 +232,19 @@ class RandomClassifierTree(RandomBaseTree):
     self.mark_table = None
 
   def __allocate_numpyarrays(self):
+    f = self.forest
     self.left_children = np.zeros(self.n_samples * 2, dtype = np.uint32)
     self.right_children = np.zeros(self.n_samples * 2, dtype = np.uint32) 
     self.feature_idx_array = np.zeros(2 * self.n_samples, dtype = np.uint16)
     self.feature_threshold_array = np.zeros(2 * self.n_samples, dtype = np.float32)
-    self.idx_array = np.zeros(2 * self.n_samples, dtype = np.uint32)
-    self.si_idx_array = np.zeros(self.n_samples, dtype = np.uint8)
-    self.nid_array = np.zeros(self.n_samples, dtype = np.uint32)
-    self.values_idx_array = np.zeros(2 * self.n_samples, dtype = self.dtype_indices)
-    self.values_si_idx_array = np.zeros(2 * self.n_samples, dtype = np.uint8)
-    self.threshold_value_idx = np.zeros(2, self.dtype_indices)
-    self.min_imp_info = driver.pagelocked_zeros(4, dtype = np.float32)  
-    self.features_array = driver.pagelocked_zeros(self.n_features, dtype = np.uint16)
-    
-    for i in range(self.n_features):
-      self.features_array[i] = i
-    
+    self.idx_array = f.idx_array 
+    self.si_idx_array = f.si_idx_array 
+    self.nid_array = f.nid_array 
+    self.values_idx_array = f.values_idx_array 
+    self.values_si_idx_array = f.values_si_idx_array 
+    self.threshold_value_idx = f.threshold_value_idx 
+    self.min_imp_info = f.min_imp_info  
+    self.features_array = f.features_array  
 
   def __release_numpyarrays(self):
     self.features_array = None
@@ -394,10 +387,10 @@ class RandomClassifierTree(RandomBaseTree):
     nid_array = self.nid_array
     
     #start_timer("get in bfs")
-    imp_min = cuda.pagelocked_empty(self.queue_size * 2, np.float32)
-    min_split = cuda.pagelocked_empty(self.queue_size, self.dtype_indices)
-    feature_idx = cuda.pagelocked_empty(self.queue_size, np.uint16)
-    threshold = cuda.pagelocked_empty(self.queue_size, np.float32) 
+    imp_min = np.empty(self.queue_size * 2, np.float32)
+    min_split = np.empty(self.queue_size, self.dtype_indices)
+    feature_idx = np.empty(self.queue_size, np.uint16)
+    threshold = np.empty(self.queue_size, np.float32) 
     cuda.memcpy_dtoh(imp_min, impurity_gpu.ptr)
     cuda.memcpy_dtoh(min_split, self.min_split.ptr)
     cuda.memcpy_dtoh(feature_idx, min_feature_idx_gpu.ptr)
@@ -467,10 +460,10 @@ class RandomClassifierTree(RandomBaseTree):
 
     self.values_idx_array = None
     self.values_si_idx_array = None
-    self.left_children.resize(self.n_nodes, refcheck = False) #= #self.left_children[0 : self.n_nodes]
-    self.right_children.resize(self.n_nodes, refcheck = False) #= #self.right_children[0 : self.n_nodes]
-    self.feature_threshold_array.resize(self.n_nodes, refcheck = False) #= #self.feature_threshold_array[0 : self.n_nodes]
-    self.feature_idx_array.resize(self.n_nodes, refcheck = False) #= self.feature_idx_array[0 : self.n_nodes]
+    self.left_children.resize(self.n_nodes, refcheck = False)
+    self.right_children.resize(self.n_nodes, refcheck = False) 
+    self.feature_threshold_array.resize(self.n_nodes, refcheck = False) 
+    self.feature_idx_array.resize(self.n_nodes, refcheck = False)
 
   def turn_to_leaf(self, nid, start_idx, n_samples, idx):
     """ Pick the indices to record on the leaf node. We'll choose the most common label """ 
