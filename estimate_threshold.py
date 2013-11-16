@@ -11,7 +11,7 @@ best_threshold_values = []
 all_classes = [2, 10, 50, 100]
 all_examples = [2*10**4, 5*10**4, 25*10**4]
 all_features = [8, 16, 32, 64, 512]
-thresholds = [1000, 2000, 3000, 4000, 5000, 10000, 20000]
+thresholds = [1000, 2000, 3000, 4000, 5000, 10000,15000,20000,25000,30000]
 total_iters = len(all_classes) * len(all_examples) * len(all_features) * len(thresholds)
 i = 1 
 # thresholds =  [0.001, 0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, .1, .2]
@@ -58,12 +58,14 @@ for n_classes in all_classes:
 
 X = np.array(inputs)
 print "input shape", X.shape
+# n_samples / 1000
+X[:, 2] /= 1000.0
 
 best_threshold_prcts = np.array(best_threshold_prcts)
 best_threshold_values = np.array(best_threshold_values)
+Y = best_threshold_values / 1000.0
 
-
-lstsq_result = np.linalg.lstsq(X, best_threshold_values)
+lstsq_result = np.linalg.lstsq(X, Y)
 print "Regression coefficients:", lstsq_result[0]
 n = len(best_threshold_values)
 print "Regression residual:", lstsq_result[1], "RMSE:", np.sqrt(lstsq_result[1] / n)
@@ -81,7 +83,7 @@ with open(csv_filename, 'w') as csvfile:
 import sklearn
 import sklearn.linear_model
 ridge = sklearn.linear_model.RidgeCV(alphas = [0.01, 0.1, 1, 10, 100], fit_intercept = False)
-ridge.fit(X, best_threshold_values)
+ridge.fit(X, Y)
 print "Ridge regression coef", ridge.coef_
 print "Ridge regression alpha", ridge.alpha_
 
