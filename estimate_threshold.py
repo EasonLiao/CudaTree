@@ -9,10 +9,13 @@ best_threshold_values = []
 
 
 all_classes = [2, 10, 50, 100, 500]
-all_examples = [2*10**4, 5*10**4, 25*10**4]
-all_features = [8, 16, 32, 64, 512]
-thresholds = [1000, 2000, 3000, 4000, 5000, 10000,15000,20000,25000,30000]
+all_examples = [10**4, 5 * 10**4, 2 * 10**5, 8 * 10**5, 2 * 10**6 ]
+all_features = [8, 16, 32, 64, 512, 2048]
+thresholds = [1000, 2000, 3000, 4000, 5000, 7500, 10000, 15000, 20000, 25000, 30000, 35000, 40000, 45000]
+
+# np.exp(np.linspace(np.log(1000), np.log(50000), num = 15)).astype('int')
 total_iters = len(all_classes) * len(all_examples) * len(all_features) * len(thresholds)
+
 i = 1 
 # thresholds =  [0.001, 0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, .1, .2]
 for n_classes in all_classes:
@@ -26,10 +29,13 @@ for n_classes in all_classes:
       print "sqrt(n_features) =", max_features 
       if n_features * n_examples > 100 * 10**6:
         print "Skipping due excessive n_features * n_examples..."
+	i += len(thresholds)
         continue
       if n_examples * n_classes > 10 ** 8:
         print "Skipping due to excessive n_examples * n_classes"
-        continue 
+	i += len(thresholds)
+        continue
+	 
 
       x = np.random.randn(n_examples, n_features)
       rf = cudatree.RandomForestClassifier(n_estimators = 3, bootstrap = False, max_features = max_features)
@@ -38,11 +44,15 @@ for n_classes in all_classes:
       best_time = np.inf
       best_threshold = None
       best_threshold_prct = None 
+      print "(n_classes = %d, n_examples = %d, max_features = %d)" % (n_classes, n_examples, max_features)
       for bfs_threshold in thresholds:
-        
         bfs_threshold_prct = float(bfs_threshold) / n_examples
         print "  -- (%d / %d) threshold %d (%0.2f%%)" % (i, total_iters,  bfs_threshold, bfs_threshold_prct * 100)
         i += 1 
+        if bfs_threshold > n_examples:
+          print "Skipping threshold > n_examples" 
+	  continue 
+       
         start_t = time.time()
         rf.fit(x, y, bfs_threshold)
         t = time.time() - start_t
@@ -79,6 +89,23 @@ with open(csv_filename, 'w') as csvfile:
       csvfile.write("," + str(best_threshold_prcts[i]))
       csvfile.write("\n")
 
+LogX = X.copy()
+LogX[:, 1:] = np.log(X[:, 1:])
+LogY = np.log(Y)
+
+log_lstsq_result = np.linalg.lstsq(LogX, LogY)
+
+print "Log regression coefficients:", log_lstsq_result[0]
+n = len(best_threshold_values)
+print "Log regression residual:", log_lstsq_result[1], "RMSE:", np.sqrt(log_lstsq_result[1] / n)
+log_pred = np.dot(LogX, log_lstsq_result[0])
+pred = np.exp(log_pred)
+residual = np.sum((Y - pred)**2)
+print "Actual residual", residual 
+print "Actual RMSE:", np.sqrt(residual / n)
+
+
+"""
 import sklearn
 import sklearn.linear_model
 ridge = sklearn.linear_model.RidgeCV(alphas = [0.01, 0.1, 1, 10, 100], fit_intercept = False)
@@ -90,3 +117,4 @@ pred = ridge.predict(X)
 sse = np.sum( (pred - Y) ** 2)
 print "Ridge residual", sse
 print "Ridge RMSE", np.sqrt(sse / n)
+"""
