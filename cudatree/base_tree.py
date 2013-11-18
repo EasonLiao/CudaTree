@@ -3,7 +3,6 @@ from util import get_best_dtype
 from pycuda import gpuarray
 import math
 from util import start_timer, end_timer
-from parakeet import jit
 from pycuda import driver
 
 class BaseTree(object):
@@ -33,7 +32,8 @@ class BaseTree(object):
       left_idx = self.left_child_array[idx]
       right_idx = self.right_child_array[idx]
 
-      if left_idx != 0 and right_idx != 0: #Means it has children
+      if left_idx != 0 and right_idx != 0: 
+        #Means it has children
         if val[threshold_idx] < threshold:
           idx = left_idx
         else:

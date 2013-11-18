@@ -148,44 +148,28 @@ def bfs_loop(queue_size,
 
 class RandomClassifierTree(BaseTree): 
   def __init__(self, 
-              samples_gpu, 
-              labels_gpu, 
-              compt_table, 
-              dtype_labels, 
-              dtype_samples, 
-              dtype_indices, 
-              dtype_counts, 
-              n_features, 
-              stride, 
-              n_labels, 
-              n_threads, 
-              n_shf_threads, 
-              max_features = None,
-              min_samples_split = None, 
-              bfs_threshold = 64, 
-              debug = False, 
-              forest = None):
+              forest):
     self.root = None
-    self.n_labels = n_labels
-    self.stride = stride
-    self.dtype_labels = dtype_labels
-    self.dtype_samples = dtype_samples
-    self.dtype_indices = dtype_indices
-    self.dtype_counts = dtype_counts
-    self.n_features = n_features
-    self.COMPUTE_THREADS_PER_BLOCK = n_threads
-    self.RESHUFFLE_THREADS_PER_BLOCK = n_shf_threads
-    self.samples_gpu = samples_gpu
-    self.labels_gpu = labels_gpu
-    self.compt_table = compt_table
-    self.max_features = max_features
-    self.min_samples_split =  min_samples_split
-    self.bfs_threshold = bfs_threshold
+    self.n_labels = forest.n_labels
+    self.stride = forest.stride
+    self.dtype_labels = forest.dtype_labels
+    self.dtype_samples = forest.dtype_samples
+    self.dtype_indices = forest.dtype_indices
+    self.dtype_counts = forest.dtype_counts
+    self.n_features = forest.n_features
+    self.COMPUTE_THREADS_PER_BLOCK = forest.COMPUTE_THREADS_PER_BLOCK
+    self.RESHUFFLE_THREADS_PER_BLOCK = forest.RESHUFFLE_THREADS_PER_BLOCK
+    self.samples_gpu = forest.samples_gpu
+    self.labels_gpu = forest.labels_gpu
+    self.compt_table = forest.compt_table
+    self.max_features = forest.max_features
+    self.min_samples_split =  forest.min_samples_split
+    self.bfs_threshold = forest.bfs_threshold
     self.forest = forest
     self.BFS_THREADS = self.forest.BFS_THREADS
     self.MAX_BLOCK_PER_FEATURE = self.forest.MAX_BLOCK_PER_FEATURE
     self.MAX_BLOCK_BFS = self.forest.MAX_BLOCK_BFS
-    if debug == False:
+    if forest.debug == False:
       self.debug = 0
     else:
       self.debug = 1
