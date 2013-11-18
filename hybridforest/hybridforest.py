@@ -106,7 +106,7 @@ class RandomForestClassifier(object):
     self.n_estimators = n_estimators
     self.max_features = max_features
     self.bootstrap = bootstrap
-    self._sk_forests = None
+    self._cpu_forests = None
     self._cuda_forest = None
     self._cpu_classifier = cpu_classifier
     
@@ -176,15 +176,15 @@ class RandomForestClassifier(object):
     #At same time, we construct cuda radom forest
     self._cuda_fit(X, Y, bfs_threshold, remain_trees, lock)    
     #get the result
-    self._sk_forests = result_queue.get()
+    self._cpu_forests = result_queue.get()
     p.join()
 
 
   def predict(self, X):
     sk_proba = np.zeros((X.shape[0], self.n_classes), np.float64)
 
-    if self._sk_forests is not None:
-      for f in self._sk_forests:
+    if self._cpu_forests is not None:
+      for f in self._cpu_forests:
         sk_proba += f.predict_proba(X) * len(f.estimators_)
      
     n_sk_trees = self.n_estimators - len(self._cuda_forest.forest)

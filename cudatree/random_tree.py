@@ -49,6 +49,7 @@ def turn_to_leaf(nid, start_idx, idx, values_idx_array, values_si_idx_array):
   values_idx_array[nid] = start_idx
   values_si_idx_array[nid] = idx
 
+#bfs loop called in bfs construction.
 @jit
 def bfs_loop(queue_size, 
             n_nodes, 
@@ -149,7 +150,6 @@ def bfs_loop(queue_size,
 class RandomClassifierTree(BaseTree): 
   def __init__(self, 
               forest):
-    self.root = None
     self.n_labels = forest.n_labels
     self.stride = forest.stride
     self.dtype_labels = forest.dtype_labels
@@ -444,9 +444,12 @@ class RandomClassifierTree(BaseTree):
     self.n_nodes = 0 
     
     self.__shuffle_feature_indices()
-    self.root = self.__dfs_construct(1, 1.0, 0, 
-                                    self.n_samples, self.sorted_indices_gpu, 
-                                    self.sorted_indices_gpu_)  
+    self.__dfs_construct(1, 
+                        1.0, 
+                        0, 
+                        self.n_samples, self.sorted_indices_gpu, 
+                        self.sorted_indices_gpu_)  
+    
     self.__bfs_construct() 
     self.__gpu_decorate_nodes(samples, target)
     self.__release_gpuarrays() 
