@@ -106,7 +106,7 @@ class RandomForestClassifier(object):
     self.n_estimators = n_estimators
     self.max_features = max_features
     self.bootstrap = bootstrap
-    self._sk_forests = None
+    self._cpu_forests = None
     self._cuda_forest = None
     self._cpu_classifier = cpu_classifier
     
@@ -123,9 +123,6 @@ class RandomForestClassifier(object):
     self._cuda_forest.fit_init(X, Y)
     f = self._cuda_forest
 
-    if bfs_threshold == None:
-      bfs_threshold = 5000
-    
     while True:
       lock.acquire()
       if remain_trees.value == 0:
@@ -136,11 +133,7 @@ class RandomForestClassifier(object):
       lock.release()
       
       #util.log_info("Cudatree got 1 job.")
-      tree = RandomClassifierTree(f.samples_gpu, f.labels_gpu, f.compt_table, 
-          f.dtype_labels, f.dtype_samples, f.dtype_indices, f.dtype_counts, 
-          f.n_features, f.stride, f.n_labels, f.COMPUTE_THREADS_PER_BLOCK, 
-          f.RESHUFFLE_THREADS_PER_BLOCK, f.max_features, f.min_samples_split, 
-          bfs_threshold, f.debug, f)   
+      tree = RandomClassifierTree(f)   
       
       si, n_samples = f._get_sorted_indices(f.sorted_indices)
       tree.fit(f.samples, f.target, si, n_samples)
@@ -183,15 +176,15 @@ class RandomForestClassifier(object):
     #At same time, we construct cuda radom forest
     self._cuda_fit(X, Y, bfs_threshold, remain_trees, lock)    
     #get the result
-    self._sk_forests = result_queue.get()
+    self._cpu_forests = result_queue.get()
     p.join()
 
 
   def predict(self, X):
     sk_proba = np.zeros((X.shape[0], self.n_classes), np.float64)
 
-    if self._sk_forests is not None:
-      for f in self._sk_forests:
+    if self._cpu_forests is not None:
+      for f in self._cpu_forests:
         sk_proba += f.predict_proba(X) * len(f.estimators_)
      
     n_sk_trees = self.n_estimators - len(self._cuda_forest.forest)
