@@ -290,9 +290,12 @@ class RandomForestClassifier(object):
       n_classes = len(np.unique(target))
       n_samples = len(samples)
       # coefficients estimated by regression over best thresholds for randomly generated data sets 
-      bfs_threshold = int(3702 + 1.58 * n_classes + 0.05766 * n_samples + 21.84 * self.max_features)
+      # estimate from GTX 580:
+      # bfs_threshold = int(3702 + 1.58 * n_classes + 0.05766 * n_samples + 21.84 * self.max_features)
+      # estimate from Titan: 
+      bfs_threshold = int(4746 + 4 * n_classes + 0.0651 * n_samples - 75 * max_features)
       # don't let it grow too big
-      bfs_threshold = min(bfs_threshold, min(n_samples, 35000))
+      bfs_threshold = min(bfs_threshold, n_samples)
       # ...or too small
       bfs_threshold = max(bfs_threshold, 2000)
 
