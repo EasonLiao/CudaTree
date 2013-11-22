@@ -245,10 +245,9 @@ class RandomForestClassifier(object):
        
     if self.bootstrap:
       self.__init_bootstrap_kernel()
-   
-    #get default bfs threshold
-    #don't do this here since we might have a manual bfs threshold 
-    #self.bfs_threshold = self._get_best_bfs_threshold(self.n_labels, self.n_samples, self.max_features)
+    
+    #get default best bfs threshold
+    self.bfs_threshold = self._get_best_bfs_threshold(self.n_labels, self.n_samples, self.max_features)
     self.sorted_indices = sorted_indices
     self.target = target
     self.samples = samples
@@ -265,19 +264,20 @@ class RandomForestClassifier(object):
     self.sorted_indices_gpu = None
     self.sorted_indices = None
     self._release_arrays()
-   
-  
+     
   def _get_best_bfs_threshold(self, n_labels, n_samples, max_features):
     # coefficients estimated by regression over best thresholds for randomly generated data sets 
     # estimate from GTX 580:
-    # bfs_threshold = int(3702 + 1.58 * n_labels + 0.05766 * n_samples + 21.84 * self.max_features)
+    bfs_threshold = int(3702 + 1.58 * n_labels + 0.05766 * n_samples + 21.84 * self.max_features)
     # estimate from Titan: 
     bfs_threshold = int(4746 + 4 * n_labels + 0.0651 * n_samples - 75 * max_features)
     # don't let it grow too big
-    bfs_threshold = min(bfs_threshold, n_samples)
+    bfs_threshold = min(bfs_threshold, 50000)
     # ...or too small
     bfs_threshold = max(bfs_threshold, 2000)
+    #bfs_threshold = max(bfs_threshold, 2000)
     return bfs_threshold 
+
 
   def fit(self, samples, target, bfs_threshold = None):
     """Construce multiple trees in the forest.
@@ -300,11 +300,9 @@ class RandomForestClassifier(object):
     """
     self.fit_init(samples, target)
     
-    if bfs_threshold is None:
-      bfs_threshold = self._get_best_bfs_threshold(self.n_labels, self.n_samples, self.max_features)
-
-    self.bfs_threshold = bfs_threshold
-
+    if bfs_threshold is not None: 
+      self.bfs_threshold = bfs_threshold
+    
     if self.verbose: 
       print "bsf_threadshold : %d; bootstrap : %r; min_samples_split : %d" % (bfs_threshold, 
           self.bootstrap,  self.min_samples_split)
