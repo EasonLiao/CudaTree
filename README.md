@@ -7,6 +7,10 @@ A random forest is an ensemble of randomized decision trees which  vote together
 CudaTree parallelizes the construction of each individual tree in the ensemble and thus is able to train faster than 
 the latest version of [scikits-learn](http://scikit-learn.org/stable/modules/tree.html). 
 
+And we've implemented a hybrid version of random forest which uses both GPU and multicore CPU. For the multicore 
+version, we use scikits-learn random forest as default, you can also supply other multicore implementations such as 
+WiseRF.
+
 ### Usage
 
 
@@ -16,6 +20,20 @@ the latest version of [scikits-learn](http://scikit-learn.org/stable/modules/tre
 
   x_train, y_train = load_data("digits")
   forest = RandomForestClassifier(n_estimators=50, verbose=True, bootstrap=False)
+  forest.fit(x_train, y_train, bfs_threshold=1024)
+  forest.predict(x_train)
+```
+
+For hybrid version:
+```python
+  import numpy as np
+  from cudatree import load_data
+  from hybridforest import RandomForestClassifier
+  from PyWiseRF import WiseRF
+
+  x_train, y_train = load_data("digits")
+  #Cuda tree uses one core and WiseRF will use other 5 cores.
+  forest = RandomForestClassifier(n_estimators=50, n_jobs = 6, bootstrap=False, cpu_classifier = WiseRF)
   forest.fit(x_train, y_train, bfs_threshold=1024)
   forest.predict(x_train)
 ```
