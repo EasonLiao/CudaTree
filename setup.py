@@ -39,7 +39,7 @@ CudaTree is writen for Python 2.7 and depends on:
     packages = find_packages() + ['cudatree.test'],
     package_dir = {'cudatree.test' : './test'},
     package_data = {'cudatree' : ['cuda_kernels/*.cu']},
-    url = "https://github.com/EasonLiao/CudaTree"
+    url = "https://github.com/EasonLiao/CudaTree",
     install_requires = [
         'numpy',
         'scikit-learn',
