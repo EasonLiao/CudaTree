@@ -49,7 +49,7 @@ def benchmark_hybrid(dataset, bfs_threshold = None):
 #benchmark_cuda("inet")
 
 #benchmark_hybrid("cf100")
-benchmark_hybrid("kdd")
+benchmark_hybrid("cf10")
 #benchmark_hybrid("covtype")
 #benchmark_hybrid("poker")
 #benchmark_hybrid("inet")

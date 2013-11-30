@@ -2,51 +2,60 @@
 import sklearn
 from sklearn.ensemble import RandomForestClassifier as skRF
 import numpy as np
-from cudatree import load_data, RandomClassifierTree, timer, convert_result
+from cudatree import RandomClassifierTree, convert_result, util
 from cudatree import RandomForestClassifier as cdRF
 import multiprocessing
 from multiprocessing import Value, Lock, cpu_count
 import atexit
-from cudatree import util
+import pycuda
+from builder import CPUBuilder
 
-def cpu_build(cpu_classifier, 
-              X, 
-              Y, 
-              n_estimators, 
-              bootstrap, 
-              max_features, 
-              n_jobs, 
-              remain_trees, 
+
+def gpu_build(X,
+              Y,
+              bootstrap,
+              max_features,
+              bfs_threshold,
+              remain_trees,
               result_queue, lock):
-  """
-  Build some trees on cpu, the cpu classifier should be cpu 
-  implementation of random forest classifier.
-  """
-  forests = list()
-  if max_features == None:
-    max_features = "auto"
+  from pycuda import driver
+  reload(util)
+  driver.init() 
+  dev = driver.Device(1)
+  ctx = dev.make_context() 
+  from pycuda import gpuarray
+  from cudatree import RandomForestClassifier as cdRF
+  from cudatree import RandomClassifierTree 
+  trees = list()    
   
-  Y = Y.astype(np.uint16) 
-  classifier_name = cpu_classifier.__name__
+  forest = cdRF(n_estimators = 1,
+                  bootstrap = bootstrap, 
+                  max_features = max_features) 
+  
+  
+  forest.fit_init(X, Y)
 
   while True:
     lock.acquire()
-    if remain_trees.value < 2 * n_jobs:
+    if remain_trees.value == 0:
       lock.release()
       break
-
-    remain_trees.value -= n_jobs
+    
+    remain_trees.value -= 1
     lock.release()
-
-    util.log_info("%s got %s jobs.", classifier_name, n_jobs)
-    f = cpu_classifier(n_estimators = n_jobs, n_jobs = n_jobs, 
-        bootstrap = bootstrap, max_features = max_features)
-    f.fit(X, Y)
-    forests.append(f)
-
-  result_queue.put(forests)
-  util.log_info("%s's job done", classifier_name)
-
+    
+    print "CUDA Got 1 job"
+    tree = RandomClassifierTree(forest)   
+    
+    si, n_samples = forest._get_sorted_indices(forest.sorted_indices)
+    tree.fit(forest.samples, forest.target, si, n_samples)
+    trees.append(tree)
+  
+  forest.fit_release()
+  print trees
+  result_queue.put(trees)
+  ctx.pop()
+  del ctx
 
 #kill the child process if any
 def cleanup(proc):
@@ -68,6 +77,7 @@ class RandomForestClassifier(object):
   def __init__(self, 
               n_estimators = 10, 
               n_jobs = -1, 
+              n_gpus = 1,
               max_features = None, 
               bootstrap = True, 
               cpu_classifier = skRF):
@@ -87,8 +97,11 @@ class RandomForestClassifier(object):
     
     n_jobs : int (default=-1)
         How many cores to use when construct random forest.
-          - If -1, them use number of cores you CPU has.
+          - If -1, then use number of cores you CPU has.
     
+    n_gpus: int (default = 1)
+        How many gpu devices to use when construct random forest.
+
     cpu_classifier : class(default=sklearn.ensemble.RandomForestClassifier)
         Which random forest classifier class to use when construct trees on CPU.
           The default is sklearn.ensemble.RandomForestClassifier. You can also pass 
@@ -108,15 +121,17 @@ class RandomForestClassifier(object):
     self.bootstrap = bootstrap
     self._cpu_forests = None
     self._cuda_forest = None
+    self._cuda_trees = None
     self._cpu_classifier = cpu_classifier
+    self.n_gpus = n_gpus
     
     if n_jobs == -1:
       n_jobs = cpu_count()
     self.n_jobs = n_jobs
-
+    
 
   def _cuda_fit(self, X, Y, bfs_threshold, remain_trees, lock):
-    self._cuda_forest = cdRF(n_estimators = self.n_estimators,
+    self._cuda_forest = cdRF(n_estimators = 1,
                             bootstrap = self.bootstrap, 
                             max_features = self.max_features) 
     #allocate resource
@@ -131,7 +146,7 @@ class RandomForestClassifier(object):
       
       remain_trees.value -= 1
       lock.release()
-      
+
       #util.log_info("Cudatree got 1 job.")
       tree = RandomClassifierTree(f)   
       
@@ -146,38 +161,26 @@ class RandomForestClassifier(object):
 
   def fit(self, X, Y, bfs_threshold = None):
     #shared memory value which tells two processes when should stop
-    remain_trees = Value("i", self.n_estimators)
-    result_queue = multiprocessing.Queue(100)
+    remain_trees = Value("i", self.n_estimators)    
     lock = Lock()
     #how many labels    
     self.n_classes = np.unique(Y).size
-
-    #Start a new process to do sklearn random forest
-    p = multiprocessing.Process(target = cpu_build, 
-                                args = (self._cpu_classifier,
-                                          X, 
-                                          Y, 
-                                          self.n_estimators, 
-                                          self.bootstrap, 
-                                          self.max_features, 
-                                          self.n_jobs - 1, 
-                                          remain_trees, 
-                                          result_queue, 
-                                          lock)
-                                )
     
-    #kill the child process when program aborts
-    atexit.register(cleanup, p)
+    cpu_builder = CPUBuilder(self._cpu_classifier,
+                          X,
+                          Y,
+                          self.bootstrap,
+                          self.max_features,
+                          self.n_jobs - 1,
+                          remain_trees,
+                          lock)
     
-    #set daemon to false to enable child process to spawn new processes
-    p.daemon = False
-    p.start() 
-
+    cpu_builder.start()
     #At same time, we construct cuda radom forest
     self._cuda_fit(X, Y, bfs_threshold, remain_trees, lock)    
     #get the result
-    self._cpu_forests = result_queue.get()
-    p.join()
+    self._cpu_forests = cpu_builder.get_result()
+    cpu_builder.join()
 
 
   def predict(self, X):
