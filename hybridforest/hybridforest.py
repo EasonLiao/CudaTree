@@ -137,7 +137,7 @@ class RandomForestClassifier(object):
       
       si, n_samples = f._get_sorted_indices(f.sorted_indices)
       tree.fit(f.samples, f.target, si, n_samples)
-      f.forest.append(tree) 
+      f._trees.append(tree) 
     
     #release the resource
     self._cuda_forest.fit_release()
@@ -187,7 +187,7 @@ class RandomForestClassifier(object):
       for f in self._cpu_forests:
         sk_proba += f.predict_proba(X) * len(f.estimators_)
      
-    n_sk_trees = self.n_estimators - len(self._cuda_forest.forest)
+    n_sk_trees = self.n_estimators - len(self._cuda_forest._trees)
     n_cd_trees = self.n_estimators - n_sk_trees
     cuda_proba = self._cuda_forest.predict_proba(X) * n_cd_trees
     final_proba = (sk_proba  + cuda_proba ) / self.n_estimators

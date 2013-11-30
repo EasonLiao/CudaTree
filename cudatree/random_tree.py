@@ -17,6 +17,24 @@ def sync():
   if False:
     driver.Context.synchronize()
 
+#Restore the pickled tree
+def restore_tree(left_children,
+                  right_children,
+                  feature_threshold_array,
+                  values_array,
+                  feature_idx_array,
+                  dtype_labels,
+                  n_features):
+  tree = RandomClassifierTree()
+  tree.left_children = left_children
+  tree.right_children = right_children
+  tree.feature_threshold_array = feature_threshold_array
+  tree.dtype_labels = dtype_labels
+  tree.values_array = values_array
+  tree.feature_idx_array = feature_idx_array
+  tree.n_features = n_features
+  return tree
+
 @jit
 def  _shuffle(x, r):
   for i in xrange(1, len(x)):
@@ -149,7 +167,10 @@ def bfs_loop(queue_size,
 
 class RandomClassifierTree(BaseTree): 
   def __init__(self, 
-              forest):
+              forest = None):
+    if forest == None:
+      return
+
     self.n_labels = forest.n_labels
     self.stride = forest.stride
     self.dtype_labels = forest.dtype_labels
@@ -177,6 +198,22 @@ class RandomClassifierTree(BaseTree):
   def __shuffle_feature_indices(self):
     if self.debug == 0:
       shuffle(self.features_array)
+  
+
+  def __reduce__(self):
+    assert self.left_children is not None
+    assert self.right_children is not None
+    assert self.feature_threshold_array is not None
+    assert self.values_array is not None
+    assert self.feature_idx_array is not None
+    assert self.dtype_labels is not None
+    return restore_tree, (self.left_children,
+                            self.right_children,
+                            self.feature_threshold_array,
+                            self.values_array,
+                            self.feature_idx_array,
+                            self.dtype_labels,
+                            self.n_features) 
 
   def __compile_kernels(self):
     """ DFS module """
@@ -198,7 +235,6 @@ class RandomClassifierTree(BaseTree):
     self.get_thresholds = f.get_thresholds 
 
     """ Other """
-    self.predict_kernel = f.predict_kernel 
     self.mark_table = f.mark_table
     const_sorted_indices = f.bfs_module.get_global("sorted_indices_1")[0]
     const_sorted_indices_ = f.bfs_module.get_global("sorted_indices_2")[0]
@@ -241,7 +277,6 @@ class RandomClassifierTree(BaseTree):
     self.reshuffle_bfs = None
     self.reduce_bfs_2d = None
     self.comput_bfs_2d = None
-    #self.predict_kernel = None
     self.get_thresholds = None
     self.scan_reduce = None
     self.mark_table = None

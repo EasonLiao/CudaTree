@@ -11,6 +11,14 @@ import math
 def convert_result(tran_table, res):
     return np.array([tran_table[i] for i in res])
 
+#Restore pickled forest, just pickle the trees, the kernel is NOT pickled
+def restore_forest(trees, dtype_labels):
+  n_estimators = len(trees)
+  f = RandomForestClassifier(n_estimators)
+  f._trees = trees
+  f.dtype_labels = dtype_labels
+  return f
+
 
 class RandomForestClassifier(object):
   """A random forest classifier.
@@ -28,6 +36,9 @@ class RandomForestClassifier(object):
   MAX_BLOCK_PER_FEATURE = 50
   MAX_BLOCK_BFS = 10000
   
+  def __reduce__(self):
+    return restore_forest, (self._trees, self.dtype_labels)
+
   def __init__(self, 
               n_estimators = 10, 
               max_features = None, 
@@ -66,7 +77,7 @@ class RandomForestClassifier(object):
     self.verbose = verbose
     self.n_estimators = n_estimators
     self.debug = debug
-    self.forest = list()
+    self._trees = list()
 
   def __compact_labels(self, target):
     def check_is_compacted(x):
@@ -83,7 +94,7 @@ class RandomForestClassifier(object):
       trans_table = convert_to_dict(self.compt_table)
       for i, val in enumerate(target):
         target[i] = trans_table[val]
-   
+
   def __init_bootstrap_kernel(self):
     """ Compile the kernels and GPUArrays needed to generate the bootstrap samples"""
     ctype_indices = dtype_to_ctype(self.dtype_indices)
@@ -161,13 +172,10 @@ class RandomForestClassifier(object):
 
 
   def _release_arrays(self):
-    #relase gpu arrays
     self.impurity_left = None
     self.impurity_right = None
     self.min_split = None
     self.label_total = None
-    #self.sorted_indices_gpu = None
-    #self.sorted_indices_gpu_ = None
     self.label_total_2d = None
     self.min_split_2d = None
     self.impurity_2d = None
@@ -186,7 +194,6 @@ class RandomForestClassifier(object):
     self.reshuffle_bfs = None
     self.reduce_bfs_2d = None
     self.comput_bfs_2d = None
-    #self.predict_kernel = None
     self.get_thresholds = None
     self.scan_reduce = None
     self.mark_table = None
@@ -309,9 +316,10 @@ class RandomForestClassifier(object):
       print "n_samples : %d; n_features : %d; n_labels : %d; max_features : %d" % (self.stride, 
           self.n_features, self.n_labels, self.max_features)
 
-    self.forest = [RandomClassifierTree(self) for i in xrange(self.n_estimators)]   
-   
-    for i, tree in enumerate(self.forest):
+  
+    self._trees = [RandomClassifierTree(self) for i in xrange(self.n_estimators)] 
+
+    for i, tree in enumerate(self._trees):
       si, n_samples = self._get_sorted_indices(self.sorted_indices)
 
       if self.verbose: 
@@ -339,10 +347,10 @@ class RandomForestClassifier(object):
         The predicted labels.
     """
     x = np.require(x.copy(), requirements = "C")
-    res = np.ndarray((len(self.forest), x.shape[0]), dtype = self.dtype_labels)
+    res = np.ndarray((len(self._trees), x.shape[0]), dtype = self.dtype_labels)
 
-    for i, tree in enumerate(self.forest):
-      res[i] =  tree.gpu_predict(x)
+    for i, tree in enumerate(self._trees):
+      res[i] =  tree.gpu_predict(x, self.predict_kernel)
 
     res =  np.array([np.argmax(np.bincount(res[:,i])) for i in xrange(res.shape[1])]) 
     if hasattr(self, "compt_table"):
@@ -352,23 +360,21 @@ class RandomForestClassifier(object):
 
   def predict_proba(self, x):
     x = np.require(x.copy(), requirements = "C")
-    res = np.ndarray((len(self.forest), x.shape[0]), dtype = self.dtype_labels)
+    res = np.ndarray((len(self._trees), x.shape[0]), dtype = self.dtype_labels)
     res_proba = np.ndarray((x.shape[0], self.n_labels), np.float64)
     
-    for i, tree in enumerate(self.forest):
-      res[i] =  tree.gpu_predict(x)
+    for i, tree in enumerate(self._trees):
+      res[i] =  tree.gpu_predict(x, self.predict_kernel)
     
     for i in xrange(x.shape[0]):
       tmp_res = np.bincount(res[:, i])
       tmp_res.resize(self.n_labels)
-      res_proba[i] = tmp_res.astype(np.float64) / len(self.forest)
+      res_proba[i] = tmp_res.astype(np.float64) / len(self._trees)
 
     return res_proba
 
-
   def score(self, X, Y):
     return np.mean(self.predict(X) == Y) 
-
 
   def __compile_kernels(self):
     ctype_indices = dtype_to_ctype(self.dtype_indices)

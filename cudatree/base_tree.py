@@ -41,7 +41,7 @@ class BaseTree(object):
       else:
         return self.value_array[idx]
 
-  def gpu_predict(self, inputs):
+  def gpu_predict(self, inputs, predict_kernel):
     def get_grid_size(n_samples):
       blocks_need = int(math.ceil(float(n_samples) / 16))
       MAX_GRID = 65535
@@ -65,7 +65,7 @@ class BaseTree(object):
                                     dtype=self.dtype_labels)
     grid = get_grid_size(n_predict)
     
-    self.predict_kernel.prepared_call(
+    predict_kernel.prepared_call(
                   grid,
                   (512, 1, 1),
                   left_child_gpu.ptr,
