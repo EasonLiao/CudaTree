@@ -38,6 +38,13 @@ For hybrid version:
   forest.predict(x_train)
 ```
 
+
+### Install 
+You should be able to install CudaTree from its [PyPI package](https://pypi.python.org/pypi/cudatree/0.4) by running:
+
+    pip install cudatree
+    
+
 ### Dependencies 
 
 CudaTree is writen for Python 2.7 and depends on:
