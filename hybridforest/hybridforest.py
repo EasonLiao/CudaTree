@@ -1,67 +1,18 @@
 #!/usr/bin/python
-import sklearn
 from sklearn.ensemble import RandomForestClassifier as skRF
 import numpy as np
 from cudatree import RandomClassifierTree, convert_result, util
-from cudatree import RandomForestClassifier as cdRF
+from cudatree import RandomForestClassifier as cdRF, timer
 import multiprocessing
 from multiprocessing import Value, Lock, cpu_count
 import atexit
 import pycuda
-from builder import CPUBuilder
-
-
-def gpu_build(X,
-              Y,
-              bootstrap,
-              max_features,
-              bfs_threshold,
-              remain_trees,
-              result_queue, lock):
-  from pycuda import driver
-  reload(util)
-  driver.init() 
-  dev = driver.Device(1)
-  ctx = dev.make_context() 
-  from pycuda import gpuarray
-  from cudatree import RandomForestClassifier as cdRF
-  from cudatree import RandomClassifierTree 
-  trees = list()    
-  
-  forest = cdRF(n_estimators = 1,
-                  bootstrap = bootstrap, 
-                  max_features = max_features) 
-  
-  
-  forest.fit_init(X, Y)
-
-  while True:
-    lock.acquire()
-    if remain_trees.value == 0:
-      lock.release()
-      break
-    
-    remain_trees.value -= 1
-    lock.release()
-    
-    print "CUDA Got 1 job"
-    tree = RandomClassifierTree(forest)   
-    
-    si, n_samples = forest._get_sorted_indices(forest.sorted_indices)
-    tree.fit(forest.samples, forest.target, si, n_samples)
-    trees.append(tree)
-  
-  forest.fit_release()
-  print trees
-  result_queue.put(trees)
-  ctx.pop()
-  del ctx
+from builder import CPUBuilder, GPUBuilder
 
 #kill the child process if any
 def cleanup(proc):
   if proc.is_alive():
     proc.terminate()
-
 
 class RandomForestClassifier(object):
   """
@@ -77,7 +28,7 @@ class RandomForestClassifier(object):
   def __init__(self, 
               n_estimators = 10, 
               n_jobs = -1, 
-              n_gpus = 1,
+              n_gpus = -1,
               max_features = None, 
               bootstrap = True, 
               cpu_classifier = skRF):
@@ -99,8 +50,9 @@ class RandomForestClassifier(object):
         How many cores to use when construct random forest.
           - If -1, then use number of cores you CPU has.
     
-    n_gpus: int (default = 1)
+    n_gpus: int (default = -1)
         How many gpu devices to use when construct random forest.
+          - If -1, then use number of devices you GPU has.
 
     cpu_classifier : class(default=sklearn.ensemble.RandomForestClassifier)
         Which random forest classifier class to use when construct trees on CPU.
@@ -127,8 +79,15 @@ class RandomForestClassifier(object):
     
     if n_jobs == -1:
       n_jobs = cpu_count()
-    self.n_jobs = n_jobs
+    if n_gpus == -1:
+      n_gpus = pycuda.autoinit.device.count()
     
+    assert n_gpus <= pycuda.autoinit.device.count(),\
+      "You can't use more devices than your system has."
+    
+    self.n_jobs = n_jobs
+    self.n_gpus = n_gpus
+
 
   def _cuda_fit(self, X, Y, bfs_threshold, remain_trees, lock):
     self._cuda_forest = cdRF(n_estimators = 1,
@@ -146,8 +105,7 @@ class RandomForestClassifier(object):
       
       remain_trees.value -= 1
       lock.release()
-
-      #util.log_info("Cudatree got 1 job.")
+      
       tree = RandomClassifierTree(f)   
       
       si, n_samples = f._get_sorted_indices(f.sorted_indices)
@@ -166,20 +124,47 @@ class RandomForestClassifier(object):
     #how many labels    
     self.n_classes = np.unique(Y).size
     
+    n_jobs = self.n_jobs - self.n_gpus
+    #at least use one core
+    if n_jobs <= 0:
+      n_jobs = 1
+
     cpu_builder = CPUBuilder(self._cpu_classifier,
                           X,
                           Y,
                           self.bootstrap,
                           self.max_features,
-                          self.n_jobs - 1,
+                          n_jobs,
                           remain_trees,
                           lock)
     
     cpu_builder.start()
+    
+    gpu_builders = [GPUBuilder(i + 1,
+                              X,
+                              Y,
+                              self.bootstrap,
+                              self.max_features,
+                              bfs_threshold,
+                              remain_trees,
+                              lock) for i in xrange(self.n_gpus - 1)]
+ 
+    pycuda.autoinit.context.pop()  
+    for b in gpu_builders:
+      b.start()
+    pycuda.autoinit.context.push()
+    
     #At same time, we construct cuda radom forest
     self._cuda_fit(X, Y, bfs_threshold, remain_trees, lock)    
-    #get the result
+    
+    #get the cpu forest result
     self._cpu_forests = cpu_builder.get_result()
+    
+    #get the gpu forest result
+    for b in gpu_builders:
+      self._cuda_forest._trees.extend(b.get_result())
+      b.join()
+  
     cpu_builder.join()
 
 
@@ -199,6 +184,7 @@ class RandomForestClassifier(object):
     if hasattr(self._cuda_forest, "compt_table"):
       res = convert_result(self._cuda_forest.compt_table, res)
     return res
+
 
   def score(self, X, Y):
     return np.mean(self.predict(X) == Y)
