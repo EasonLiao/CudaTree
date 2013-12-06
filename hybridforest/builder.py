@@ -50,7 +50,7 @@ class CPUBuilder(multiprocessing.Process):
 
     while True:
       lock.acquire()
-      if remain_trees.value < 60:
+      if remain_trees.value < 80:
         lock.release()
         break
 

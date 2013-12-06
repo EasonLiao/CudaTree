@@ -125,20 +125,19 @@ class RandomForestClassifier(object):
     self.n_classes = np.unique(Y).size
     
     n_jobs = self.n_jobs - self.n_gpus
-    #at least use one core
-    if n_jobs <= 0:
-      n_jobs = 1
-
-    cpu_builder = CPUBuilder(self._cpu_classifier,
-                          X,
-                          Y,
-                          self.bootstrap,
-                          self.max_features,
-                          n_jobs,
-                          remain_trees,
-                          lock)
     
-    cpu_builder.start()
+
+    if n_jobs > 0:
+      cpu_builder = CPUBuilder(self._cpu_classifier,
+                            X,
+                            Y,
+                            self.bootstrap,
+                            self.max_features,
+                            n_jobs,
+                            remain_trees,
+                            lock)
+      
+      cpu_builder.start()
     
     gpu_builders = [GPUBuilder(i + 1,
                               X,
@@ -157,16 +156,16 @@ class RandomForestClassifier(object):
     #At same time, we construct cuda radom forest
     self._cuda_fit(X, Y, bfs_threshold, remain_trees, lock)    
     
-    #get the cpu forest result
-    self._cpu_forests = cpu_builder.get_result()
+    if n_jobs > 0:
+      #get the cpu forest result
+      self._cpu_forests = cpu_builder.get_result()
+      cpu_builder.join()
     
     #get the gpu forest result
     for b in gpu_builders:
       self._cuda_forest._trees.extend(b.get_result())
       b.join()
   
-    cpu_builder.join()
-
 
   def predict(self, X):
     sk_proba = np.zeros((X.shape[0], self.n_classes), np.float64)
