@@ -47,14 +47,20 @@ class CPUBuilder(multiprocessing.Process):
     
     self.Y = self.Y.astype(np.uint16) 
     classifier_name = cpu_classifier.__name__
+    n_trees_before = 0
 
     while True:
       lock.acquire()
-      if remain_trees.value < 80:
+      #The trees trained by GPU in last round
+      n_trees_by_gpu = n_trees_before - remain_trees.value
+      
+      #Stop trainning if the remaining tree is smaller than the sum of n_jobs and n_trees trained by gpu 
+      if remain_trees.value < n_jobs or (n_trees_before != 0 and remain_trees.value - n_jobs <= n_trees_by_gpu):
         lock.release()
         break
-
+            
       remain_trees.value -= n_jobs
+      n_trees_before = remain_trees.value
       lock.release()
 
       util.log_info("%s got %s jobs.", classifier_name, n_jobs)

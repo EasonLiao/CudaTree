@@ -34,22 +34,22 @@ def benchmark_hybrid(dataset, bfs_threshold = None):
   throw_away.fit(x_train, y_train, bfs_threshold = bfs_threshold)
 
   with timer("%s benchmark hybrid (bfs_threshold = %s)" % (dataset, bfs_threshold)): 
-    forest = hybridForest(n_estimators = n_estimators, bootstrap = bootstrap, n_jobs = 1,
+    forest = hybridForest(n_estimators = n_estimators, bootstrap = bootstrap, n_jobs = -1,
         max_features = None)
     forest.fit(x_train, y_train, bfs_threshold = bfs_threshold)
   forest = None
 
-#benchmark_hybrid("covtype", None)
+benchmark_hybrid("covtype", None)
 #benchmark_cuda("pamap", None)
 #benchmark_cuda("cf100", 10000)
 #benchmark_cuda("inet", 1000)
 #benchmark_hybrid("inet", 5000)
 
-#benchmark_cuda("poker")
-#benchmark_cuda("inet")
+benchmark_hybrid("poker")
+benchmark_hybrid("inet")
 
 #benchmark_hybrid("cf100")
-benchmark_hybrid("inet")
+benchmark_hybrid("cf100")
 #benchmark_hybrid("covtype")
 #benchmark_hybrid("poker")
 #benchmark_hybrid("inet")
