@@ -1,8 +1,0 @@
-In debug mode, each dataset has nodes, used for debugging only :
-test first 10000 samples:
-
-covtype : 114495  1.0
-cifar100 : 77341 
-cifar10 : 10973   0.9818
-inet : 11349      0.8397 
-kdd : 997/991     1.0 
