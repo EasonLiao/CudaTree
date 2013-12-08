@@ -19,8 +19,8 @@ multicore implementations such as WiseRF.
   from cudatree import load_data, RandomForestClassifier
 
   x_train, y_train = load_data("digits")
-  forest = RandomForestClassifier(n_estimators=50, verbose=True, bootstrap=False)
-  forest.fit(x_train, y_train, bfs_threshold=1024)
+  forest = RandomForestClassifier(n_estimators = 50, verbose = True, bootstrap = False)
+  forest.fit(x_train, y_train, bfs_threshold = 4196)
   forest.predict(x_train)
 ```
 
@@ -32,9 +32,15 @@ For hybrid version:
   from PyWiseRF import WiseRF
 
   x_train, y_train = load_data("digits")
-  #We gonna build random forest on two GPU and 6 CPU core. For the GPU version we use CudaTree, CPU version we use WiseRF
-  forest = RandomForestClassifier(n_estimators=50, n_gpu = 2, n_jobs = 6, bootstrap=False, cpu_classifier = WiseRF)
-  forest.fit(x_train, y_train, bfs_threshold=1024)
+  #We gonna build random forest on two GPU and 6 CPU core. 
+  #For the GPU version we use CudaTree, CPU version we use WiseRF
+  forest = RandomForestClassifier(n_estimators=50, 
+                                    n_gpu = 2, 
+                                    n_jobs = 6, 
+                                    bootstrap=False, 
+                                    cpu_classifier = WiseRF)
+  
+  forest.fit(x_train, y_train)
   forest.predict(x_train)
 ```
 
