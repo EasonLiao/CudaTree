@@ -48,6 +48,9 @@ class RandomForestClassifier(object):
     
     n_jobs : int (default=-1)
         How many cores to use when construct random forest.
+        Please note that we will give n_gpu cores to GPU builder,
+        If the remaining number of cores is less than 1, we won't
+        train any trees on CPU.
           - If -1, then use number of cores you CPU has.
     
     n_gpus: int (default = -1)
