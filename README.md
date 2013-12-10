@@ -46,7 +46,7 @@ For hybrid version:
 
 
 ### Install 
-You should be able to install CudaTree from its [PyPI package](https://pypi.python.org/pypi/cudatree/0.4) by running:
+You should be able to install CudaTree from its [PyPI package](https://pypi.python.org/pypi/cudatree) by running:
 
     pip install cudatree
     
