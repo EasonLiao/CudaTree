@@ -21,14 +21,14 @@ class RandomForestClassifier(object):
   to construct random forest. The reason is that CudaTree only 
   use one CPU core, the main computation is done at GPU side, 
   so in order to get maximum utilization of the system, we can 
-  train one CudaTree random forest with GPU and one core of CPU,
+  trai one CudaTree random forest with GPU and one core of CPU,
   and simultaneously we construct some trees on other cores by 
   other multicore implementaion of random forest.
   """
   def __init__(self, 
               n_estimators = 10, 
               n_jobs = -1, 
-              n_gpus = -1,
+              n_gpus = 1,
               max_features = None, 
               bootstrap = True, 
               cpu_classifier = skRF):
@@ -53,7 +53,7 @@ class RandomForestClassifier(object):
         train any trees on CPU.
           - If -1, then use number of cores you CPU has.
     
-    n_gpus: int (default = -1)
+    n_gpus: int (default = 1)
         How many gpu devices to use when construct random forest.
           - If -1, then use number of devices you GPU has.
 

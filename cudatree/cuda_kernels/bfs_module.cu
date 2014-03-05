@@ -174,10 +174,10 @@ __global__ void compute_2d(
             continue;
           
           float n_left =  i + t - reg_start_idx + 1;
-          float imp_left = (1.0 - (float)left_sqr_sum / (n_left * n_left)) * (n_left / n_samples);
+          float imp_left = (1.0 - (double)left_sqr_sum / (n_left * n_left)) * (n_left / n_samples);
 
           float n_right = reg_stop_idx - reg_start_idx - n_left; 
-          float imp_right = (1.0 - (float)right_sqr_sum / (n_right * n_right)) * (n_right / n_samples); 
+          float imp_right = (1.0 - (double)right_sqr_sum / (n_right * n_right)) * (n_right / n_samples); 
 
           if(imp_left + imp_right < reg_min_left + reg_min_right){
             reg_min_left = imp_left;

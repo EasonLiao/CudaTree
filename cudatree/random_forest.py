@@ -7,6 +7,9 @@ from util import start_timer, end_timer, show_timings
 from parakeet import jit
 import math
 
+import parakeet
+#parakeet.config.backend = "c"
+
 @jit
 def convert_result(tran_table, res):
     return np.array([tran_table[i] for i in res])
@@ -53,9 +56,9 @@ class RandomForestClassifier(object):
     n_estimator : integer, optional (default=10)
         The number of trees in the forest.
 
-    max_features : int or None, optional (default="log2(n_features)")
+    max_features : int or None, optional (default="sqrt(n_features)")
         The number of features to consider when looking for the best split:
-          - If None, then `max_features=log2(n_features)`.
+          - If None, then `max_features=sqrt(n_features)`.
 
     min_samples_split : integer, optional (default=1)
         The minimum number of samples required to split an internal node.
@@ -311,7 +314,7 @@ class RandomForestClassifier(object):
       self.bfs_threshold = bfs_threshold
     
     if self.verbose: 
-      print "bsf_threadshold : %d; bootstrap : %r; min_samples_split : %d" % (bfs_threshold, 
+      print "bsf_threadshold : %d; bootstrap : %r; min_samples_split : %d" % (self.bfs_threshold, 
           self.bootstrap,  self.min_samples_split)
       print "n_samples : %d; n_features : %d; n_labels : %d; max_features : %d" % (self.stride, 
           self.n_features, self.n_labels, self.max_features)
