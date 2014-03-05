@@ -35,7 +35,7 @@ For hybrid version:
   #We gonna build random forest on two GPU and 6 CPU core. 
   #For the GPU version we use CudaTree, CPU version we use WiseRF
   forest = RandomForestClassifier(n_estimators=50, 
-                                    n_gpu = 2, 
+                                    n_gpus = 2, 
                                     n_jobs = 6, 
                                     bootstrap=False, 
                                     cpu_classifier = WiseRF)
@@ -46,7 +46,7 @@ For hybrid version:
 
 
 ### Install 
-You should be able to install CudaTree from its [PyPI package](https://pypi.python.org/pypi/cudatree/0.4) by running:
+You should be able to install CudaTree from its [PyPI package](https://pypi.python.org/pypi/cudatree) by running:
 
     pip install cudatree
     
