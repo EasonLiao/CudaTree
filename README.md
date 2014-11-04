@@ -1,6 +1,8 @@
 CudaTree
 ==================
 
+**I decide to stop maintaining CudaTree since scikit-learn made a sigificant improvements on its random forest and it's well maintained.**
+
 CudaTree is an implementation of Leo Breiman's [Random Forests](http://www.stat.berkeley.edu/~breiman/RandomForests/cc_home.htm)
 adapted to run on the GPU. 
 A random forest is an ensemble of randomized decision trees which  vote together to predict new labels.
