@@ -394,7 +394,7 @@ class RandomForestClassifier(object):
       self.debug))
     
     const_stride = dfs_module.get_global("stride")[0]
-    driver.memcpy_htod(const_stride, np.uint32(self.stride))
+    driver.memcpy_htod(const_stride, np.asarray(np.uint32(self.stride)))
 
     self.find_min_kernel = dfs_module.get_function("find_min_imp")
     self.find_min_kernel.prepare("PPPi")
@@ -426,9 +426,9 @@ class RandomForestClassifier(object):
     const_stride = bfs_module.get_global("stride")[0]
     const_n_features = bfs_module.get_global("n_features")[0]
     const_max_features = bfs_module.get_global("max_features")[0]
-    driver.memcpy_htod(const_stride, np.uint32(self.stride))
-    driver.memcpy_htod(const_n_features, np.uint16(self.n_features))
-    driver.memcpy_htod(const_max_features, np.uint16(self.max_features))
+    driver.memcpy_htod(const_stride, np.asarray(np.uint32(self.stride)))
+    driver.memcpy_htod(const_n_features, np.asarray(np.uint16(self.n_features)))
+    driver.memcpy_htod(const_max_features, np.asarray(np.uint16(self.max_features)))
 
     self.scan_total_bfs = bfs_module.get_function("scan_bfs")
     self.scan_total_bfs.prepare("PPPP")

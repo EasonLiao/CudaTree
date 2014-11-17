@@ -238,8 +238,8 @@ class RandomClassifierTree(BaseTree):
     self.mark_table = f.mark_table
     const_sorted_indices = f.bfs_module.get_global("sorted_indices_1")[0]
     const_sorted_indices_ = f.bfs_module.get_global("sorted_indices_2")[0]
-    cuda.memcpy_htod(const_sorted_indices, np.uint64(self.sorted_indices_gpu.ptr)) 
-    cuda.memcpy_htod(const_sorted_indices_, np.uint64(self.sorted_indices_gpu_.ptr)) 
+    cuda.memcpy_htod(const_sorted_indices, np.asarray(np.uint64(self.sorted_indices_gpu.ptr)))
+    cuda.memcpy_htod(const_sorted_indices_, np.asarray(np.uint64(self.sorted_indices_gpu_.ptr)))
 
   def __allocate_gpuarrays(self):
     f = self.forest
